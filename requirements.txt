@@ -19,4 +19,4 @@ pyarrow>=17.0.0
 # on the DGX image this is usually already present, but if the build fails:
 #   apt-get install -y cmake build-essential
 # then retry `pip install dlib`. Compilation can take several minutes.
-dlib==19.24.6
+# dlib==19.24.6  # Optional: only needed for scripts/05_train_sbi_baseline.py (requires cmake)
