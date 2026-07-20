@@ -1,0 +1,22 @@
+# Pin these AFTER confirming your CUDA 12.4 build of torch is already installed
+# on the DGX image — do NOT blindly `pip install torch` again, it may pull a
+# mismatched CUDA build. Check with: python -c "import torch; print(torch.version.cuda)"
+
+timm==1.0.11
+open_clip_torch==3.3.0
+facenet-pytorch==2.6.0
+albumentations==1.4.18
+opencv-python-headless==4.10.0.84
+decord==0.6.0
+pandas==2.2.3
+scikit-learn==1.5.2
+wandb==0.18.5
+tqdm==4.66.5
+pyarrow==17.0.0
+
+# For SBI baseline (scripts/05_train_sbi_baseline.py) — facial landmark detection.
+# NOTE: dlib compiles from source via pip and needs cmake + a C++ compiler;
+# on the DGX image this is usually already present, but if the build fails:
+#   apt-get install -y cmake build-essential
+# then retry `pip install dlib`. Compilation can take several minutes.
+dlib==19.24.6

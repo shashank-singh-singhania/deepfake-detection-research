@@ -1,0 +1,35 @@
+# Data (large, not meant for git — regenerate via scripts/)
+data/processed/
+data/raw/
+*.mp4
+*.avi
+
+# Experiment artifacts (checkpoints/logs — large, regenerate via training)
+experiments/*/
+!experiments/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/*.ipynb_checkpoints/
+
+# Environment
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+
+# Test scratch
+tests/_scratch*/
+
+# Editor
+.vscode/
+.idea/

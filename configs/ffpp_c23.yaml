@@ -1,0 +1,38 @@
+# Central reference config for the FF++ (C23) deepfake detection project.
+# NOTE: scripts/00-02 currently take these as CLI flags directly (simplest for
+# now). This file is the single source of truth to copy values FROM when
+# calling those scripts, and will be wired up as actual config-loading once
+# we reach the training phase (Phase 4+ in docs/project_plan / Project Plan
+# sheet), so hyperparameters don't have to live scattered across shell history.
+
+dataset:
+  name: FaceForensics++
+  compression: c23
+  methods: [Deepfakes, Face2Face, FaceSwap, NeuralTextures]
+  ffpp_root: /data/FaceForensics++          # <-- set to your actual DGX path
+  splits_dir: /data/FaceForensics++/splits  # <-- official train/val/test json
+
+preprocessing:
+  output_root: data/processed
+  frames_per_video: 32
+  image_size: 299
+  face_margin: 0.3
+  extract_masks: true
+
+training:            # placeholder values — will be finalized in Phase 4/5
+  batch_size: 32
+  image_size: 299
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  epochs: 30
+  mixed_precision: true
+  early_stopping_patience: 5
+
+evaluation:
+  protocols:
+    - in_dataset_ff++_c23
+    - cross_manipulation_leave_one_out
+    - cross_dataset_celebdf_v2_zero_shot
+    - diffusion_subset_zero_shot   # optional, small sample (see Gap Analysis #7)
+  explainability_metric: pointing_game_iou   # vs FF++ ground-truth manipulation masks
