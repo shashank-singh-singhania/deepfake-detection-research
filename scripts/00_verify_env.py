@@ -36,9 +36,10 @@ def check_nvidia_smi():
 
 def check_amp():
     import torch
+    conv = torch.nn.Conv2d(3, 3, 3, padding=1).cuda()
     x = torch.randn(4, 3, 224, 224, device="cuda")
     with torch.autocast(device_type="cuda", dtype=torch.float16):
-        y = x * 2
+        y = conv(x)
     assert y.dtype == torch.float16
     return "mixed precision autocast OK"
 
