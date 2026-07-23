@@ -21,7 +21,7 @@ import torch
 
 
 def save_full_checkpoint(path, model, optimizer, scheduler, epoch: int,
-                          best_val_auc: float, history: list):
+                          best_val_auc: float, history: list, patience_counter: int = 0):
     torch.save({
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -29,14 +29,18 @@ def save_full_checkpoint(path, model, optimizer, scheduler, epoch: int,
         "epoch": epoch,
         "best_val_auc": best_val_auc,
         "history": history,
+        "patience_counter": patience_counter,
     }, path)
 
 
 def load_full_checkpoint(path, model, optimizer, scheduler, device) -> dict:
     """Restores model/optimizer/scheduler in place. Returns a dict with
-    start_epoch (the NEXT epoch to run), best_val_auc, and history so the
-    training script's loop and early-stopping logic can pick up where they
-    left off."""
+    start_epoch (the NEXT epoch to run), best_val_auc, history, and
+    patience_counter so the training script's loop and early-stopping logic
+    can pick up EXACTLY where they left off — not reset early-stopping
+    progress just because the run was interrupted and resumed.
+    `patience_counter` defaults to 0 for checkpoints saved before this field
+    existed (backward compatible with older latest_checkpoint.pt files)."""
     ckpt = torch.load(path, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     optimizer.load_state_dict(ckpt["optimizer_state_dict"])
@@ -46,6 +50,7 @@ def load_full_checkpoint(path, model, optimizer, scheduler, device) -> dict:
         "start_epoch": ckpt["epoch"] + 1,
         "best_val_auc": ckpt["best_val_auc"],
         "history": ckpt["history"],
+        "patience_counter": ckpt.get("patience_counter", 0),
     }
 
 

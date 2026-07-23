@@ -108,6 +108,7 @@ def main():
         start_epoch = state["start_epoch"]
         best_val_auc = state["best_val_auc"]
         history = state["history"]
+        patience_counter = state["patience_counter"]
         print(f"Resumed from {args.resume_from_checkpoint}: starting at epoch {start_epoch}, "
               f"best_val_auc so far={best_val_auc:.4f}")
 
@@ -137,7 +138,8 @@ def main():
             patience_counter += 1
 
         save_full_checkpoint(run_dir / "latest_checkpoint.pt", model, optimizer, scheduler,
-                              epoch=epoch, best_val_auc=best_val_auc, history=history)
+                              epoch=epoch, best_val_auc=best_val_auc, history=history,
+                              patience_counter=patience_counter)
 
         if patience_counter >= args.early_stopping_patience:
             print(f"Early stopping: no val AUC improvement for {args.early_stopping_patience} epochs.")

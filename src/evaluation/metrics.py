@@ -5,7 +5,9 @@ cross-manipulation, cross-dataset). Keeping this centralized means every
 number in the paper's results tables comes from the same computation.
 """
 import numpy as np
-from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, average_precision_score
+from sklearn.metrics import (
+    roc_auc_score, roc_curve, accuracy_score, average_precision_score, balanced_accuracy_score,
+)
 
 
 def compute_eer(labels: np.ndarray, probs: np.ndarray) -> float:
@@ -20,6 +22,17 @@ def compute_metrics(labels, probs, threshold: float = 0.5) -> dict:
     """
     labels: 0/1 ground truth (real/fake)
     probs: predicted probability of being FAKE (i.e. sigmoid output, class 1)
+
+    Includes BOTH `acc` (raw accuracy) and `balanced_acc` (average of
+    per-class recall). Raw accuracy is sensitive to the real:fake ratio of
+    whatever subset you evaluate on — e.g. an "all methods combined" FF++
+    test split is naturally ~1:4 real:fake (4 manipulation methods per real
+    video), while a "per-method" subset (this method's fakes + ALL reals) is
+    closer to 1:1. A model with a miscalibrated decision threshold can show
+    wildly different `acc` across these two views even though its underlying
+    ranking (AUC) barely changes — `balanced_acc` is threshold-sensitive too,
+    but at least isn't distorted by the subset's class ratio, so prefer it
+    when comparing accuracy across differently-composed evaluation subsets.
     """
     labels = np.asarray(labels)
     probs = np.asarray(probs)
@@ -31,10 +44,12 @@ def compute_metrics(labels, probs, threshold: float = 0.5) -> dict:
         metrics["auc"] = float("nan")
         metrics["eer"] = float("nan")
         metrics["ap"] = float("nan")
+        metrics["balanced_acc"] = float("nan")
     else:
         metrics["auc"] = float(roc_auc_score(labels, probs))
         metrics["ap"] = float(average_precision_score(labels, probs))
         metrics["eer"] = compute_eer(labels, probs)
+        metrics["balanced_acc"] = float(balanced_accuracy_score(labels, preds))
     metrics["acc"] = float(accuracy_score(labels, preds))
     return metrics
 
