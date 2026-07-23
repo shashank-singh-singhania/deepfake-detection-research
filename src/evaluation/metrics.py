@@ -79,18 +79,29 @@ def compute_pointing_game_accuracy(heatmaps, masks) -> float:
     return correct / total if total > 0 else float("nan")
 
 
-def compute_mask_iou(heatmaps, masks, heat_threshold: float = 0.5, mask_threshold: float = 0.5) -> float:
+def compute_mask_iou(heatmaps, masks, heat_threshold=None, mask_threshold: float = 0.5) -> float:
     """
     Mean IoU between thresholded predicted heatmaps and ground-truth masks,
     over FAKE samples with a non-empty mask only (see compute_pointing_game_accuracy).
+
+    heat_threshold: if None (default), uses per-sample adaptive threshold =
+        median(heatmap), so the top 50% of activations are treated as the
+        "predicted manipulation region". This is robust to early-training models
+        whose sigmoid outputs cluster in a low range (e.g. 0.01-0.3), where a
+        fixed 0.5 threshold zeros out all predictions giving IoU = 0.0 even
+        when the model is learning the correct spatial region. Once training
+        converges and outputs approach 0/1, the median naturally approaches 0.5.
+        Pass an explicit float to override (e.g. heat_threshold=0.5 for strict
+        evaluation once the model is fully trained).
     """
     ious = []
     for hm, m in zip(heatmaps, masks):
-        hm = np.asarray(hm)
+        hm = np.asarray(hm, dtype=np.float32)
         m = np.asarray(m)
         if m.sum() <= 0:
             continue
-        pred = hm >= heat_threshold
+        thresh = float(np.median(hm)) if heat_threshold is None else heat_threshold
+        pred = hm >= thresh
         gt = m >= mask_threshold
         union = np.logical_or(pred, gt).sum()
         if union == 0:
@@ -98,3 +109,4 @@ def compute_mask_iou(heatmaps, masks, heat_threshold: float = 0.5, mask_threshol
         inter = np.logical_and(pred, gt).sum()
         ious.append(inter / union)
     return float(np.mean(ious)) if ious else float("nan")
+
