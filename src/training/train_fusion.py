@@ -41,7 +41,7 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
             with torch.autocast(device_type="cuda", dtype=torch.float16):
                 logits, heatmap = model(images, return_heatmap=True)
                 cls_loss = cls_criterion(logits, labels)
-                mask_loss = F.binary_cross_entropy(heatmap, masks)
+                mask_loss = F.binary_cross_entropy(heatmap.float(), masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -49,7 +49,7 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
         else:
             logits, heatmap = model(images, return_heatmap=True)
             cls_loss = cls_criterion(logits, labels)
-            mask_loss = F.binary_cross_entropy(heatmap, masks)
+            mask_loss = F.binary_cross_entropy(heatmap.float(), masks.float())
             loss = cls_weight * cls_loss + mask_weight * mask_loss
             loss.backward()
             optimizer.step()
