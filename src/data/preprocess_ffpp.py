@@ -41,9 +41,28 @@ def sample_frame_indices(total_frames: int, n: int) -> list[int]:
 
 
 def read_frames(video_path: Path, indices: list[int]) -> dict[int, np.ndarray]:
-    """Read specific frame indices from a video via OpenCV. Returns {idx: BGR frame}."""
-    cap = cv2.VideoCapture(str(video_path))
+    """Read specific frame indices from a video via Decord (if available) or OpenCV. Returns {idx: BGR frame}."""
     frames = {}
+    
+    # Try using decord first since it works when OpenCV's ffmpeg binding is broken
+    try:
+        import decord
+        vr = decord.VideoReader(str(video_path))
+        for idx in indices:
+            if idx < len(vr):
+                # decord returns RGB, convert to BGR to match OpenCV output
+                frame_rgb = vr[idx].asnumpy()
+                frames[idx] = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        return frames
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[WARN] decord failed to read {video_path}: {e}. Falling back to OpenCV.")
+
+    # Fallback to OpenCV
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return frames
     idx_set = set(indices)
     max_idx = max(indices) if indices else -1
     i = 0
@@ -131,9 +150,21 @@ def process_video(item: VideoItem, extractor: FaceExtractor, output_root: Path,
     if extract_masks and item.label == 1 and item.mask_path is not None:
         mask_dir.mkdir(parents=True, exist_ok=True)
 
-    cap = cv2.VideoCapture(str(item.path))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    total = 0
+    try:
+        import decord
+        vr = decord.VideoReader(str(item.path))
+        total = len(vr)
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    if total <= 0:
+        cap = cv2.VideoCapture(str(item.path))
+        if cap.isOpened():
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
     indices = sample_frame_indices(total, frames_per_video)
     if not indices:
         print(f"[WARN] unreadable/empty video: {item.path}")
