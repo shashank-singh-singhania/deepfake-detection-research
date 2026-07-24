@@ -1,135 +1,173 @@
-# Deepfake Detection Research — Comprehensive Project Guide
+# Deepfake Detection Research — Beginner-Friendly Project Guide & Architecture Manual
 
-**Author & Project Lead:** Shashank Singh Singhania  
+**Project Lead:** Shashank Singh Singhania  
 **Repository:** `deepfake-detection-research`  
 **Dataset:** FaceForensics++ (FF++) C23 Quality  
-**Hardware:** NVIDIA DGX Node (A100 40GB GPU)  
+**Hardware:** NVIDIA DGX Node (1x NVIDIA A100 40GB GPU)  
 **Date:** July 2026  
 
 ---
 
-## 1. Literature Review & Gap Analysis
+## 1. Project Introduction & Key Concepts
 
-### 1.1 Summary of Key Surveyed Papers
+### What is Deepfake Detection?
+A **deepfake** is an AI-generated or AI-modified image or video where a person's face or body is altered (for example, swapping one person's face onto another person, or manipulating facial expressions). 
 
-| Year | Venue | Paper Title & Authors | Core Idea / Category | Key Findings & Reported Results | Key Identified Limitations |
-|---|---|---|---|---|---|
-| 2019 | ICCV | **FaceForensics++** (*Rössler et al.*) | Benchmark & Baseline | Introduced FF++ dataset (DeepFakes, Face2Face, FaceSwap, NeuralTextures) at 3 compression levels (RAW, C23, C40). Xception baseline achieved **>99% AUC** intra-dataset. | No cross-manipulation or cross-dataset evaluation; compression robustness lightly studied. |
-| 2020 | CVPR | **Face X-ray** (*Li et al.*) | Blending Boundary Artifacts | Detects blending boundary between forged face and background instead of method-specific artifacts. | Struggles when no blending boundary exists (e.g. fully generated GAN/diffusion faces). |
-| 2021 | CVPR | **Multi-attentional Deepfake Detection** (*Zhao et al.*) | Spatial Attention & Texture | Uses multiple spatial attention heads + texture feature enhancement to aggregate forgery traces. | Attention maps not validated against ground-truth manipulation masks; drops on unseen generators. |
-| 2021 | CVPR | **Pairwise Self-Consistency (PCL)** (*Li et al.*) | Inconsistency Learning | Learns source feature consistency within a face; inconsistency flags forged regions without explicit fake labels. | Consistency cues degrade under heavy compression (C23/C40) and small/low-res face crops. |
-| 2021 | CVPR | **High-Frequency Feature Generalization** (*Luo et al.*) | Frequency-Domain (SRM) | Combines RGB features with high-frequency noise features (SRM filters) via a two-stream network with attention fusion. | High-frequency cues are sensitive to JPEG/video compression; heavy re-encoding suppresses the signal. |
-| 2022 | CVPR | **Self-Blended Images (SBI)** (*Shiohara & Yamasaki*) | Synthetic Data Augmentation | Generates pseudo-fake training pairs by blending a source image with a transformed version of itself. Achieved **93%+ cross-dataset AUC** on Celeb-DF. | Landmark-based blending fails on extreme poses/occlusions; poor in-dataset performance when evaluated without threshold calibration. |
-| 2022 | CVPR | **SLADD** (*Chen et al.*) | Adversarial Augmentation | Adversarially learns hardest forgery augmentations dynamically during training. | Adds training instability from adversarial loop; limited analysis on diffusion-based fakes. |
-| 2022 | ECCV | **UIA-ViT** (*Zhuang et al.*) | Vision Transformer | ViT backbone with unsupervised patch-consistency loss to highlight inconsistent patches naturally. | Requires massive pretraining; attention interpretability as forgery localization only weakly verified. |
-| 2023 | CVPR | **AltFreezing** (*Wang et al.*) | Video Temporal Modeling | 3D-CNN with alternating freeze/train strategy for spatial vs. temporal weights to force joint learning. | Computationally heavy; frame-based features are unguided by spatial manipulation masks. |
-| 2023 | CVPR | **TALL** (*Xu et al.*) | Thumbnail Layout Video ViT | Rearranges short clip frames into a thumbnail layout grid for 2D Swin-Transformer spatio-temporal learning. | Layout tiling breaks fine-grained per-frame spatial localization. |
-| 2023 | CVPR | **Implicit Identity Leakage** (*Dong et al.*) | Identity Disentanglement | Identifies that detectors memorize identity shortcuts rather than forgery artifacts; proposes identity disentanglement. | Only partially removes identity leakage; adds training complexity. |
-| 2023 | CVPR | **UCF** (*Yan et al.*) | Common Feature Disentanglement | Disentangles forgery-irrelevant (identity/content) from common forgery features across manipulation methods. | Evaluated mainly on GAN/graphics fakes, not modern diffusion-based generation. |
+**Deepfake detection** is the task of building machine learning models (specifically deep neural networks) that can automatically take an input face image or video frame and determine:
+1. **Binary Classification:** Is this image **REAL** (authentic) or **FAKE** (manipulated)?
+2. **Localization / Explainability:** *Where exactly* in the image was the manipulation performed? (Outputting a 2D spatial heatmap showing the fake region).
 
 ---
 
-### 1.2 Identified Literature Gaps
+### Key Terminology Explained Simply
 
-From our systematic review of 2019–2025 literature, 7 critical research gaps were identified:
-
-1. **Compression Fragility (Gap #1):** Most detectors degrade drastically under compressed video protocols (C23/C40) because fine artifact signals are suppressed by quantization.
-2. **Diffusion & Generator Over-fitting (Gap #2):** Detectors over-fit to specific GAN/graphics fingerprints and fail on unseen diffusion-based face swaps.
-3. **Lack of Quantitative Explainability (Gap #3):** Most explainability claims rely solely on qualitative Grad-CAM visual inspections rather than quantitative validation against ground-truth manipulation masks (e.g. Pointing Game Accuracy, IoU).
-4. **Single-Stream Feature Isolation (Gap #4):** Prior SOTA models focus on *only* semantic CLIP features OR frequency filters OR temporal consistency, rarely fusing them in a compression-aware manner with explicit mask-guided localization supervision.
-5. **Identity Shortcut Memorization (Gap #5):** Deep fake classifiers memorize subject identity rather than learning forgery boundaries.
-6. **Transformer / VLM Efficiency Ignored (Gap #6):** Multi-stream VLM/ViT architectures lack parameter and latency analysis for practical deployment.
-7. **Benchmark Reality Gap (Gap #7):** Academic models reporting >99% intra-dataset AUC frequently collapse to 45–50% on real-world in-the-wild deepfakes.
+- **FaceForensics++ (FF++):** The standard benchmark dataset used in deepfake research. It contains 1,000 original real videos and 4,000 manipulated videos generated using 4 distinct forgery techniques:
+  1. **Deepfakes (DF):** Learning-based face replacement.
+  2. **Face2Face (F2F):** Expression transfer (puppeteering an authentic face).
+  3. **FaceSwap (FS):** Graphics-based 3D face transfer.
+  4. **NeuralTextures (NT):** GAN-based facial mouth/texture synthesis.
+- **Compression Level (C23):** Video compression removes subtle pixel details to save file size. Raw uncompressed video is easy to detect, but **C23 (medium compression)** represents realistic video compression used on social media platforms (YouTube, Twitter, TikTok). It is much harder to detect because compression blurs micro-artifacts.
+- **Identity-Preserved Splitting:** Making sure that all frames of a specific person's video appear **only** in the training set, validation set, or test set, but never split across them. This prevents the model from "cheating" by memorizing a person's face shape instead of learning true forgery traces.
 
 ---
 
-### 1.3 Selected Research Gap & Project Objective
+## 2. Literature Review & Gap Analysis (Simplified)
 
-**Chosen Gap:** Fusing **semantic features** (CLIP ViT-B/32), **compression-aware frequency forensics** (SRM high-pass filters), and a **quantitative pixel-level explainability head** evaluated against ground-truth manipulation masks on compressed FF++ C23 data.
+### 2.1 Plain-English Breakdown of 13 Key Research Papers
+
+| Paper Title & Authors | Year & Venue | What They Did (Simple Explanation) | Why It Mattered | What Was Missing / Limitation |
+|---|---|---|---|---|
+| **FaceForensics++**<br>*Rössler et al.* | 2019<br>ICCV | Created the FF++ benchmark dataset with 4 forgery methods across 3 compression levels (Raw, C23, C40). Trained an **Xception** neural network baseline. | Established the foundation for modern deepfake detection research. Proved Xception achieves **>99% accuracy** on raw/lightly compressed data. | Did not test on unseen deepfake generators or external datasets. Compression robustness was lightly explored. |
+| **Face X-ray**<br>*Li et al.* | 2020<br>CVPR | Instead of looking at fake faces, it looks for the **blending boundary**—the line where the fake face crop was pasted onto the real background. | Shifted focus away from specific GAN artifacts toward universal blending boundaries, improving generalization. | Fails when no blending boundary exists (e.g. fully generated AI faces or whole-image diffusion models). |
+| **Multi-attentional Detection**<br>*Zhao et al.* | 2021<br>CVPR | Used multiple spatial attention heads to zoom into different face regions (eyes, mouth, skin) and aggregate texture artifacts. | Improved detection of subtle local manipulations (like NeuralTextures). | Attention maps were never quantitatively verified against true ground-truth fake masks. |
+| **Pairwise Self-Consistency (PCL)**<br>*Li et al.* | 2021<br>CVPR | Checked if different parts of the same face are consistent with each other (e.g., matching lighting, skin texture). | Inconsistent features signal forgery without needing specific fake labels during training. | Consistency signals break down under heavy video compression (C23/C40) and small face crops. |
+| **High-Frequency Feature Generalization**<br>*Luo et al.* | 2021<br>CVPR | Extracted high-frequency noise using **SRM filters** (Spatial Rich Model noise filters) alongside standard RGB color images. | High-frequency noise exposes hidden mathematical artifacts left by deepfake generators. | High-frequency details are easily destroyed when videos are compressed or re-encoded. |
+| **Self-Blended Images (SBI)**<br>*Shiohara & Yamasaki* | 2022<br>CVPR | Created synthetic fake training images by blending a real face with a slightly modified version of itself (**Self-Blending**). | Achieved **93%+ cross-dataset accuracy** on Celeb-DF without ever seeing real deepfake datasets during training. | Landmark detection fails on extreme face angles; poor in-dataset performance on standard benchmarks without threshold tuning. |
+| **SLADD**<br>*Chen et al.* | 2022<br>CVPR | Used adversarial learning to automatically discover the hardest fake image augmentations during model training. | Dynamically adapts the training data so the model doesn't over-fit to easy fakes. | Increases training complexity and instability; unverified on diffusion-based fakes. |
+| **UIA-ViT**<br>*Zhuang et al.* | 2022<br>ECCV | Used Vision Transformers (ViT) with patch-consistency loss to automatically highlight inconsistent facial patches. | Showed Transformers can learn forgery boundaries without needing pixel-level masks. | Requires huge compute/pretraining; attention maps were only visually inspected, not quantitatively measured. |
+| **AltFreezing**<br>*Wang et al.* | 2023<br>CVPR | Used a 3D-CNN video network, alternately freezing spatial weights and temporal weights during training. | Forced the network to learn both spatial artifacts and motion/timing glitches across video frames. | Very slow and compute-heavy; operates at video clip level rather than fine-grained per-frame spatial masks. |
+| **TALL**<br>*Xu et al.* | 2023<br>CVPR | Arranged video frames into a 2D "thumbnail grid image" so a standard 2D Swin-Transformer could process video sequences cheaply. | High efficiency for video deepfake detection compared to heavy 3D-CNNs. | Grid layout destroys fine spatial details needed for precise pixel-level localization. |
+| **Implicit Identity Leakage**<br>*Dong et al.* | 2023<br>CVPR | Proved that deepfake detectors often cheat by memorizing identity (who the person is) rather than learning forgery artifacts. | Proposed identity-disentanglement to force the model to ignore subject identity. | Only partially removes identity bias; adds complex multi-task loss terms. |
+| **UCF (Uncovering Common Features)**<br>*Yan et al.* | 2023<br>CVPR | Separated identity/content features from universal forgery features shared across all manipulation algorithms. | Strong generalization across different deepfake generation methods. | Complex disentanglement losses; tested primarily on older GANs rather than modern diffusion models. |
 
 ---
 
-## 2. Project Implementation Status vs. Plan
+### 2.2 The 7 Literature Gaps (Why Current Models Fail)
 
-| Phase | Planned Task | Status | Implementation Details & Artifacts |
-|---|---|---|---|
-| **Phase 0** | Environment Setup | **100% Complete** | Installed PyTorch (CUDA 12.4), `timm`, `open_clip_torch`, `albumentations`, `decord`, OpenCV on DGX A100. Pinned in `requirements.txt`. |
-| **Phase 1 & 2** | Data Preprocessing & Manifest | **100% Complete** | Preprocessed 5,000 FF++ C23 videos into 159,969 face crops (224×224 / 299×299). Built `manifest.csv` with identity-preserved splits (`train`: 115,188, `val`: 22,384, `test`: 22,397) and ground-truth mask paths. Added decord fallback for video reading. |
-| **Phase 3** | Baseline Reproduction | **100% Complete** | Trained Xception baseline (**98.44% AUC**) and SBI baseline (**71.10% AUC**, verified 1.6% landmark failure rate). Established upper/lower bounds. |
-| **Phase 4** | Architecture Implementation | **100% Complete** | Built **Novel Fusion Model** (`src/models/fusion_model.py`) with dual-stream CLIP + SRM frequency branches + explainability head. Built **TriConsistencyNet** (`another_model/`) with EfficientNetV2-S + 2D FFT + Cross-Consistency Attention. |
-| **Phase 5** | Training Protocol & Stability | **100% Complete** | Implemented FP16 AMP, Cosine LR scheduler, `max_grad_norm=1.0` gradient clipping, and `nan_to_num` + `clamp(0,1)` BCE guards to prevent CUDA device-side assertions. |
-| **Phase 6** | Evaluation & Diagnostics Suite | **100% Complete** | Implemented `scripts/07_run_evaluation.py` and `another_model/evaluate.py`. Computes AUC, AP, EER, Accuracy, Balanced Accuracy per manipulation method (Deepfakes, Face2Face, FaceSwap, NeuralTextures), plus Pointing Game Accuracy and Mask IoU. |
-| **Phase 7** | Refinement & Ablations | **In Progress** | Diagnostic suite identified that the Fusion localization head is *well-localized but under-confident* (IoU @ 0.5 = 0.03%, but IoU @ 0.10 threshold = **38.69%**, Pointing Game = **66.65%**). |
+1. **Gap #1 — Compression Sensitivity:** High-performing models collapse when videos are compressed (FF++ C23/C40) because fine pixel artifacts are wiped out by JPEG/video compression.
+2. **Gap #2 — Generator Over-fitting:** Models trained on one deepfake tool (e.g. GANs) fail on new generators (e.g. Diffusion models or novel face-swappers).
+3. **Gap #3 — Lack of Quantitative Explainability:** Most papers show nice-looking heatmaps (Grad-CAM), but **never measure** if their heatmap actually matches the true ground-truth manipulation mask.
+4. **Gap #4 — Isolated Feature Streams:** Papers focus exclusively on *only* semantic CLIP features OR frequency noise OR temporal motion—rarely fusing them into a unified, compression-aware model with spatial mask supervision.
+5. **Gap #5 — Identity Memorization Shortcut:** Classifiers memorize person identities instead of learning forgery characteristics.
+6. **Gap #6 — Transformer Efficiency Ignored:** Advanced ViT/VLM models are rarely benchmarked for parameter count and inference speed.
+7. **Gap #7 — Academic vs. In-The-Wild Reality Gap:** Models scoring >99% on clean academic benchmarks drop to ~50% (random guess) on real-world internet deepfakes.
 
 ---
 
-## 3. Project Workflow & Workflow History
+### 2.3 Our Selected Research Gap & Solution Architecture
+
+**Our Goal:** To solve **Gaps #1, #3, and #4** by creating a **Novel Dual-Stream Fusion Model**:
+- **Stream A (Semantic Branch):** Uses a pre-trained **CLIP ViT-B/32** vision-language backbone to capture high-level facial structures and semantic anomalies.
+- **Stream B (Frequency Branch):** Uses **SRM (Spatial Rich Model) high-pass noise filters** followed by a CNN to capture mathematical high-frequency noise hidden in compressed C23 videos.
+- **Dual Heads:** 
+  1. **Classification Head:** Predicts if the image is Real or Fake.
+  2. **Explainability / Localization Head:** Outputs a 2D spatial heatmap of the manipulated face region, supervised directly by FF++ ground-truth masks, and evaluated quantitatively using **Pointing Game Accuracy** and **Mask IoU**.
+
+---
+
+## 3. Project Implementation Status & Step-by-Step Evolution
 
 ```mermaid
 flowchart TD
-    A["Raw FF++ C23 Videos"] --> B["scripts/02_run_preprocessing.py (Decord/OpenCV + RetinaFace/MTCNN)"]
-    B --> C["data/processed/manifest.csv (159,969 aligned face crops + masks)"]
+    A["Raw FF++ C23 Videos (1,000 Real + 4,000 Fake)"] --> B["scripts/02_run_preprocessing.py (Decord/OpenCV + Face Crop & Alignment)"]
+    B --> C["data/processed/manifest.csv (159,969 aligned face crops + GT masks)"]
     
     C --> D1["scripts/04_train_baseline.py (Xception Classifier)"]
     C --> D2["scripts/05_train_sbi_baseline.py (Self-Blended Images)"]
     C --> D3["scripts/06_train_fusion.py (Novel Fusion Model v2)"]
-    C --> D4["another_model/train.py (TriConsistencyNet)"]
+    C --> D4["another_model/train.py (TriConsistencyNet Exploration)"]
     
-    D1 --> E1["experiments/xception_baseline_c23/best_model.pt"]
-    D2 --> E2["experiments/sbi_baseline_c23/best_model.pt"]
-    D3 --> E3["experiments/fusion_v2_c23/best_model.pt"]
-    D4 --> E4["another_model/experiments/triconsistencynet_c23/best_model.pt"]
+    D1 --> E1["experiments/xception_baseline_c23/best_model.pt (AUC: 98.44%)"]
+    D2 --> E2["experiments/sbi_baseline_c23/best_model.pt (AUC: 71.10%)"]
+    D3 --> E3["experiments/fusion_v2_c23/best_model.pt (AUC: 88.24%)"]
+    D4 --> E4["another_model/experiments/triconsistencynet_c23/best_model.pt (AUC: 80.66%)"]
     
     E1 & E2 & E3 & E4 --> F["scripts/07_run_evaluation.py & another_model/evaluate.py"]
-    F --> G["CLAUDE_UPDATE_REPORT.md & project_guide.md Benchmark Analysis"]
+    F --> G["project_guide.md & CLAUDE_UPDATE_REPORT.md Benchmark Synthesis"]
 ```
+
+### Phase-by-Phase Completion Status
+
+| Phase | Task | Status | What Was Accomplished |
+|---|---|---|---|
+| **Phase 0** | Environment Setup | **100% Done** | Installed PyTorch with CUDA 12.4, `timm`, `open_clip_torch`, `albumentations`, `decord` on DGX A100. Pinned in `requirements.txt`. |
+| **Phase 1 & 2** | Data Acquisition & Preprocessing | **100% Done** | Processed 5,000 videos into 159,969 aligned 224x224 / 299x299 face crops. Created master `manifest.csv` with identity-preserved splits (`train`: 115,188, `val`: 22,384, `test`: 22,397) and ground-truth mask locations. |
+| **Phase 3** | Baseline Reproduction | **100% Done** | Trained Xception (**98.44% AUC**) and SBI (**71.10% AUC**, verified 1.6% landmark failure rate). Established upper and lower performance bounds. |
+| **Phase 4** | Novel Model Architecture | **100% Done** | Built **Novel Dual-Stream Fusion Model** (CLIP + SRM + Localization Head) and **TriConsistencyNet** (EfficientNetV2-S + 2D FFT + CCA attention). |
+| **Phase 5** | Training Protocol & Stability Fixes | **100% Done** | Added FP16 Mixed Precision, Cosine Annealing LR, Gradient Clipping (`max_grad_norm=1.0`), and NaN guards (`nan_to_num` + `clamp(0,1)`). |
+| **Phase 6** | Diagnostic Evaluation Suite | **100% Done** | Built `07_run_evaluation.py` and `another_model/evaluate.py`. Calculates AUC, AP, EER, Balanced Acc, Pointing Game, and optimal IoU per manipulation method. |
+| **Phase 7** | Model Refinement & Analysis | **In Progress** | Discovered that Fusion v2's localization head is *well-localized but under-confident* (IoU @ 0.5 = 0.03%, but IoU @ 0.10 threshold = **38.69%**, Pointing Game = **66.65%**). |
 
 ---
 
-## 4. Custom Technical Enhancements Implemented
+## 4. Engineering Solutions & Stability Fixes Explained
 
-1. **Decord Video Reader Fallback (`src/data/preprocess_ffpp.py`):**
-   - Automatically falls back to `decord` when OpenCV `cv2.VideoCapture` fails on certain FFMPEG container codecs on Linux/DGX nodes.
+During training on the DGX A100 GPU, we encountered and solved 5 major technical bugs:
 
-2. **NaN Loss Guard & Gradient Clipping (`src/training/train_fusion.py`):**
-   - Unscales gradients before clipping (`scaler.unscale_(optimizer)`).
-   - Enforces `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)` to prevent FP16 gradient explosion under AMP.
-   - Wraps loss calculation in `torch.isfinite(loss)` check to drop corrupt batches without triggering `GradScaler` assertion errors.
+### Bug 1: OpenCV Video Loading Crash on Linux
+- **Problem:** OpenCV (`cv2.VideoCapture`) failed on certain compressed FFMPEG video containers on Linux, returning empty frames.
+- **Fix:** Implemented an automatic fallback to `decord` video reader in `src/data/preprocess_ffpp.py`. If OpenCV returns an empty frame, `decord` takes over seamlessly.
 
-3. **CUDA Device-Side Assert Guard for BCE Loss (`src/training/train_fusion.py`):**
-   - Sanitizes spatial heatmap outputs before passing to `F.binary_cross_entropy()`:
-     ```python
-     heatmap_safe = torch.nan_to_num(heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
-     ```
-   - Prevents CUDA kernel crash (`Loss.cu:94`) when evaluating checkpoints with extreme activation values.
+### Bug 2: Early Stopping Countdown Reset on Resume
+- **Problem:** When training was interrupted and resumed with `--resume_from_checkpoint`, `patience_counter` wasn't saved in the checkpoint file. This caused early stopping to reset to 0 every time training resumed.
+- **Fix:** Updated `src/training/checkpoint.py` to store and restore `patience_counter` in state dicts across all scripts.
 
-4. **Multi-Version Albumentations Compatibility (`another_model/src/dataset.py`):**
-   - Dynamically inspects `Albumentations` version (1.x vs 2.x) to support positional `A.Resize(image_size, image_size)` and `quality_range` vs `quality_lower/upper` parameters without pydantic validation errors.
+### Bug 3: PyTorch AMP `GradScaler` Assertion Error
+- **Problem:** When loss became NaN on corrupt batches, skipping backward pass while calling `scaler.update()` triggered `AssertionError: No inf checks were recorded prior to update.`
+- **Fix:** Fixed `src/training/train_fusion.py` so `scaler.unscale_(optimizer)` and `scaler.update()` are only called when a valid backward pass occurs.
 
-5. **Diagnostic Suite (`src/evaluation/metrics.py`):**
-   - `compute_heatmap_stats()`: Computes mean, p90, p99, max, and fraction of pixels exceeding threshold 0.5.
-   - `compute_best_threshold_iou()`: Sweeps thresholds [0.01 – 0.90] to separate spatial localization accuracy from activation confidence calibration.
+### Bug 4: CUDA Device-Side Assertion Crash (`Loss.cu:94`)
+- **Problem:** When resuming from a corrupted checkpoint, model heatmaps produced NaN/Inf values. Feeding NaNs into `F.binary_cross_entropy()` caused a hard GPU assertion error (`input_val >= zero && input_val <= one`).
+- **Fix:** Sanitized heatmaps before BCE loss calculation in `src/training/train_fusion.py`:
+  ```python
+  heatmap_safe = torch.nan_to_num(heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+  ```
+
+### Bug 5: Albumentations 2.x Argument Schema Mismatch
+- **Problem:** Albumentations upgraded to 2.x, changing `RandomResizedCrop(height=..., width=...)` and `ImageCompression` argument signatures, breaking training scripts.
+- **Fix:** Updated `another_model/src/dataset.py` with positional `A.Resize(image_size, image_size)` and a dynamic `_get_image_compression()` wrapper that works on both Albumentations 1.x and 2.x.
 
 ---
 
 ## 5. Model Architectures & Benchmark Evaluation Results
 
-### 5.1 Comprehensive Benchmark Comparison (FF++ C23 Test Split)
+### 5.1 Explanation of Evaluation Metrics (Beginner Friendly)
 
-| Model | Overall AUC | Average Precision (AP) | Equal Error Rate (EER) | Balanced Accuracy | Raw Accuracy | Pointing Game Acc | Mask IoU |
-|---|---|---|---|---|---|---|---|
-| **Xception Baseline** | **98.44%** | 99.62% | 5.38% | 93.46% | 95.16% | N/A | N/A |
-| **Novel Fusion Model v2** | **88.24%** | 96.42% | 19.29% | 77.22% | 85.11% | **66.65%** | **37.75%** (@ adaptive) / **38.69%** (@ thresh 0.10) |
-| **TriConsistencyNet** | **80.66%** | 93.97% | 27.22% | 67.91% | 80.77% | N/A | N/A |
-| **SBI Baseline** | **71.10%** | 90.31% | 34.96% | 53.37% | 25.95%* | N/A | N/A |
-
-*\*Note: SBI's raw accuracy of 25.95% is caused by threshold miscalibration (predicting mostly real). Its true discrimination capability is measured by AUC (71.10%) and Balanced Acc (53.37%).*
+- **AUC (Area Under ROC Curve):** Measures how well the model ranks fake faces higher than real faces across all possible decision thresholds. **1.0 (100%) is perfect**, **0.5 (50%) is random guessing**.
+- **Average Precision (AP):** Measures precision across different recall levels. Especially valuable for imbalanced datasets.
+- **Equal Error Rate (EER):** The error rate at the exact point where False Positive Rate equals False Negative Rate. **Lower is better** (0% is perfect).
+- **Balanced Accuracy:** The average of Accuracy on Real faces and Accuracy on Fake faces. Unlike raw accuracy, it cannot be fooled by class imbalance (e.g. 1 real : 4 fakes).
+- **Pointing Game Accuracy:** Evaluates localization. It takes the highest intensity pixel (peak point) in the model's heatmap and checks if it falls inside the ground-truth fake mask. **Higher is better**.
+- **Mask IoU (Intersection over Union):** Measures spatial overlap between the predicted fake mask region and the ground-truth fake mask ($0.0 \to 1.0$).
 
 ---
 
-### 5.2 Per-Manipulation Method AUC Breakdown
+### 5.2 Comprehensive Benchmark Results (FF++ C23 Test Split)
 
-| Model | Deepfakes | Face2Face | FaceSwap | NeuralTextures |
+| Model Architecture | Overall AUC | Average Precision (AP) | Equal Error Rate (EER) | Balanced Accuracy | Raw Accuracy | Pointing Game Acc | Mask IoU |
+|---|---|---|---|---|---|---|---|
+| **Xception Baseline** | **98.44%** | 99.62% | 5.38% | 93.46% | 95.16% | N/A | N/A |
+| **Novel Fusion Model v2** | **88.24%** | 96.42% | 19.29% | 77.22% | 85.11% | **66.65%** | **37.75%** (@ adaptive)<br>**38.69%** (@ thresh 0.10) |
+| **TriConsistencyNet** | **80.66%** | 93.97% | 27.22% | 67.91% | 80.77% | N/A | N/A |
+| **SBI Baseline** | **71.10%** | 90.31% | 34.96% | 53.37% | 25.95%* | N/A | N/A |
+
+*\*Note on SBI: Raw accuracy of 25.95% is due to threshold miscalibration (predicting almost all images as Real). Its true discrimination capability is reflected by AUC (71.10%) and Balanced Acc (53.37%).*
+
+---
+
+### 5.3 Per-Manipulation Method AUC Breakdown
+
+| Model Architecture | Deepfakes (DF) | Face2Face (F2F) | FaceSwap (FS) | NeuralTextures (NT) |
 |---|---|---|---|---|
 | **Xception Baseline** | **99.15%** | **98.91%** | **98.74%** | **96.98%** |
 | **Novel Fusion Model v2** | **93.14%** | **88.64%** | **89.78%** | **81.40%** |
@@ -138,49 +176,54 @@ flowchart TD
 
 ---
 
-### 5.3 Architectural Details
+### 5.4 Model Architectural Comparison
 
-#### A. Novel Fusion Model (`src/models/fusion_model.py`)
-- **Semantic Branch:** OpenAI ViT-B/32 CLIP backbone (penultimate layer, top 2 Transformer blocks unfrozen). Produces a 512-dim semantic feature vector.
-- **Frequency Branch:** Fixed Spatial Rich Model (SRM) high-pass filters (3 kernels: $5\times5$) $\rightarrow$ 3-layer trainable Conv-BN-ReLU CNN. Produces a $128\times56\times56$ spatial feature map.
-- **Cross-Domain Adapter & Fusion:** Fuses semantic and frequency representations via spatial projection and concatenation.
-- **Dual Heads:**
-  1. Classification Head: Linear classifier predicting binary Real/Fake probability.
-  2. Localization Head: $1\times1$ Convolution + Sigmoid predicting $224\times224$ pixel-level manipulation heatmap supervised by ground-truth masks.
-- **Parameters:** 88.2M Total | 14.9M Trainable (17.0%).
+#### 1. Novel Dual-Stream Fusion Model (`src/models/fusion_model.py`)
+- **Semantic Stream:** OpenAI CLIP ViT-B/32 backbone (top 2 Transformer blocks unfrozen) $\rightarrow$ 512-dim semantic vector.
+- **Frequency Stream:** Fixed 3-kernel SRM high-pass noise filters $\rightarrow$ 3-layer trainable Conv-BN-ReLU CNN $\rightarrow$ $128\times56\times56$ feature map.
+- **Dual Output Heads:**
+  - **Classification Head:** Linear layer predicting Real vs Fake probability.
+  - **Localization Head:** $1\times1$ Conv + Sigmoid producing $224\times224$ manipulation heatmap.
+- **Total Parameters:** 88.2M | Trainable: 14.9M (17.0%).
 
-#### B. TriConsistencyNet (`another_model/src/model.py`)
-- **Spatial Branch:** Frozen `tf_efficientnetv2_s` backbone $\rightarrow$ $1280\times7\times7$ spatial feature map.
-- **Frequency Guidance Encoder (FGE):** 2D Fast Fourier Transform magnitude spectrum ($\log(1 + |F|)$ log compression + per-sample normalization) $\rightarrow$ 0.8M parameter CNN $\rightarrow$ $256\times7\times7$ frequency feature map.
-- **Cross-Consistency Attention (CCA):** Projects spatial and frequency streams into a shared 1280-channel space. Computes element-wise product $C = S_p \odot F_p$, passes through a gating network to compute spatial attention $A \in [0, 1]$, and refines spatial features via residual multiplication $S_{\text{refined}} = S \odot (1 + A)$.
-- **Adaptive Feature Fusion (AFF):** Squeeze-and-Excitation channel gate calibrating global average pooled features before classification.
-- **Parameters:** 27.2M Total | 7.09M Trainable (26.0%).
+#### 2. TriConsistencyNet (`another_model/src/model.py`)
+- **Spatial Stream:** Frozen `EfficientNetV2-S` backbone $\rightarrow$ $1280\times7\times7$ feature map.
+- **Frequency Stream (FGE):** 2D FFT magnitude spectrum ($\log(1 + |F|)$ log compression) $\rightarrow$ 0.8M parameter CNN $\rightarrow$ $256\times7\times7$ feature map.
+- **Cross-Consistency Attention (CCA):** Element-wise multiplication $C = S \odot F$ gated into spatial attention map $A \in [0, 1]$, refining features via $S_{\text{refined}} = S \odot (1 + A)$.
+- **Adaptive Feature Fusion (AFF):** Squeeze-and-Excitation channel gating.
+- **Total Parameters:** 27.2M | Trainable: 7.09M (26.0%).
 
-#### C. Xception Baseline (`src/models/baseline.py`)
-- Standard legacy Xception architecture pretrained on ImageNet, fine-tuned end-to-end with CrossEntropyLoss on 299×299 face crops.
+#### 3. Xception Baseline (`src/models/baseline.py`)
+- Standard 36-layer depthwise separable convolutional network pretrained on ImageNet and fine-tuned end-to-end on 299x299 face crops.
 
-#### D. SBI Baseline (`src/data/sbi_dataset.py` & `src/data/sbi_blend.py`)
-- Self-Blended Images augmentation generating pseudo-fake faces by landmark-guided blending of source face crops with self-transformed cutouts.
+#### 4. SBI Baseline (`src/data/sbi_dataset.py` & `sbi_blend.py`)
+- Self-Blended Images augmentation blending real source faces with transformed cutouts of themselves to create artificial fake pairs during training.
 
 ---
 
-## 6. Project Goals & Next Action Plan
+## 6. Research Goals & Actionable Improvement Plan
 
-### 6.1 Core Goals & Benchmark Targets
-1. **Target Model to Improve:** **Novel Fusion Model** (currently **88.24% AUC**).
-2. **Target Score to Beat:** Close the gap to **Xception Baseline (98.44% AUC)** while maintaining quantitative explainability.
-3. **Primary Limitation Identified in Fusion Model:**
-   - Diagnostic heatmap analysis revealed:
-     `heatmap: mean=0.1055 p90=0.2367 p99=0.3688 max=0.8756 frac>0.5=0.0001 | best_iou=0.3891 @thresh=0.10 (iou@0.5=0.0005)`
-   - The localization head has strong spatial pointing accuracy (**66.65% Pointing Game**), but its sigmoid outputs are **under-confident** (clustering in 0.10–0.35 range). Standard 0.5 threshold yields near-zero IoU, whereas threshold 0.10 yields **38.69% IoU**.
+### 6.1 Current Bottleneck in Novel Fusion Model
+Our diagnostic suite revealed a key discovery:
+```text
+heatmap: mean=0.1055 p90=0.2367 p99=0.3688 max=0.8756 frac>0.5=0.0001
+         best_iou=0.3891 @thresh=0.10 (iou@0.5=0.0005)
+```
+- **Pointing Game Accuracy is strong (66.65%):** The localization head correctly locates *where* the fake region is.
+- **Activations are under-confident:** Heatmap sigmoid outputs cluster between 0.10 and 0.35. Standard thresholding at 0.5 zeros out the heatmap, making IoU look broken (0.05%), whereas thresholding at 0.10 yields **38.69% Mask IoU**.
 
-### 6.2 Actionable Next Steps
-1. **Loss Function Refinement for Fusion Model:**
-   - Replace standard BCE mask loss with **Focal BCE** or add a **Dice Loss** component to force the localization head to emit confident activations without saturating near zero.
+---
+
+### 6.2 Actionable Roadmap to Improve Fusion Model
+
+To push the Fusion Model beyond **88.24% AUC** toward Xception's **98.44% AUC**:
+
+1. **Replace Standard BCE with Focal BCE / Dice Loss:**
+   - Standard BCE treats easy background pixels equally. Adding **Focal Loss** or **Dice Loss** will force the localization head to emit confident activations ($\to 1.0$) for fake pixels.
 2. **Increase Mask Loss Weight:**
-   - Test scaling `mask_weight` from 2.0 to 4.0/5.0 now that gradient clipping (`max_grad_norm=1.0`) prevents FP16 gradient explosion.
-3. **Cross-Dataset Evaluation Protocol:**
-   - Evaluate Fusion v2 and Xception on Celeb-DF v2 test split to verify whether Fusion's dual-stream architecture offers superior zero-shot cross-dataset generalization over Xception.
+   - Now that gradient clipping (`max_grad_norm=1.0`) prevents FP16 gradient explosion, scale `mask_weight` from 2.0 to 4.0 or 5.0 to force stronger spatial guidance.
+3. **Cross-Dataset Zero-Shot Evaluation:**
+   - Evaluate Fusion v2 and Xception on the **Celeb-DF v2** test set to prove that Fusion's dual-stream CLIP+SRM architecture generalizes better to unseen deepfakes than Xception.
 
 ---
 
@@ -188,80 +231,80 @@ flowchart TD
 
 ```text
 deepfake-detection-research/
-├── CLAUDE_UPDATE_REPORT.md             # High-level update report artifact
-├── PROJECT_STRUCTURE.md                # Architectural summary document
-├── README.md                           # Main repository readme
-├── project_guide.md                    # THIS Comprehensive Project Guide
-├── requirements.txt                    # Pinned Python dependencies
+├── CLAUDE_UPDATE_REPORT.md             # Summary update report for project tracking
+├── PROJECT_STRUCTURE.md                # Architecture overview document
+├── README.md                           # Quickstart guide & repository overview
+├── project_guide.md                    # THIS Comprehensive Beginner-Friendly Guide
+├── requirements.txt                    # Pinned dependencies (PyTorch, timm, open_clip, etc.)
 │
-├── another_model/                      # TriConsistencyNet Standalone Package
+├── another_model/                      # TriConsistencyNet Standalone Sub-Package
 │   ├── evaluate.py                     # Test evaluation script with per-method breakdown
 │   ├── evaluate_triconsistencynet.py   # Legacy evaluation entrypoint
-│   ├── mode_architecture.md            # TriConsistencyNet design specification
+│   ├── mode_architecture.md            # TriConsistencyNet architectural documentation
 │   ├── model.py                        # Legacy model file
-│   ├── test_triconsistencynet.py       # Forward-pass sanity check script
-│   ├── train.py                        # Standalone training entrypoint (reads manifest.csv)
-│   ├── train_triconsistencynet.py      # Legacy training script
+│   ├── test_triconsistencynet.py       # Standalone forward-pass sanity check
+│   ├── train.py                        # Standalone training script (reads manifest.csv)
+│   ├── train_triconsistencynet.py      # Legacy training entrypoint
 │   └── src/
-│       ├── __init__.py                 # Subpackage init
+│       ├── __init__.py                 # Package init
 │       ├── attention.py                # Cross-Consistency Attention (CCA) module
-│       ├── dataset.py                  # Standalone dataset reader (Albumentations 1.x/2.x compatible)
+│       ├── dataset.py                  # Standalone dataset loader (Albumentations 1.x/2.x ready)
 │       ├── frequency.py                # 2D FFT Frequency Guidance Encoder (FGE) module
 │       ├── fusion.py                   # Adaptive Feature Fusion (AFF) SE module
-│       └── model.py                    # Combined TriConsistencyNet PyTorch model
+│       └── model.py                    # Complete TriConsistencyNet PyTorch architecture
 │
-├── configs/                            # Configuration YAML files
-│   ├── dataset.yaml                    # Dataset parameters
+├── configs/                            # YAML Configuration Files
+│   ├── dataset.yaml                    # Dataset paths & split settings
 │   ├── model.yaml                      # Model architecture parameters
-│   └── training.yaml                   # Hyperparameters & optimizer configuration
+│   └── training.yaml                   # Hyperparameters, batch size, learning rates
 │
-├── data/                               # Dataset directory
+├── data/                               # Dataset Storage
 │   ├── processed/
-│   │   └── manifest.csv                # Master dataset index (159,969 frames, splits, mask paths)
-│   ├── raw/                            # Raw extracted video frames
-│   └── splits/                         # Official FF++ train/val/test CSV splits
+│   │   └── manifest.csv                # Master index (159,969 face crops, splits, GT mask paths)
+│   ├── raw/                            # Raw video frames
+│   └── splits/                         # Official FF++ train/val/test CSV split files
 │
-├── docs/                               # Literature review & documentation
-│   └── literature_review_deepfake.xlsx # Matrix of 13+ surveyed papers, gaps, & execution plan
+├── docs/                               # Literature Documentation
+│   └── literature_review_deepfake.xlsx # Matrix of 13+ surveyed papers, gaps, & plan
 │
-├── experiments/                        # Saved checkpoints, logs, & metrics
+├── experiments/                        # Checkpoints, Logs, & Outputs
 │   ├── fusion_v1_c23/                  # Fusion v1 run directory
-│   ├── fusion_v2_c23/                  # Fusion v2 run directory (best_model.pt)
-│   ├── sbi_baseline_c23/               # SBI baseline run directory (best_model.pt)
-│   ├── triconsistencynet_c23/          # TriConsistencyNet run directory (best_model.pt)
-│   └── xception_baseline_c23/          # Xception baseline run directory (best_model.pt)
+│   ├── fusion_v2_c23/                  # Fusion v2 run directory (best_model.pt - 88.24% AUC)
+│   ├── sbi_baseline_c23/               # SBI baseline run directory (best_model.pt - 71.10% AUC)
+│   ├── triconsistencynet_c23/          # TriConsistencyNet run directory (best_model.pt - 80.66% AUC)
+│   └── xception_baseline_c23/          # Xception baseline run directory (best_model.pt - 98.44% AUC)
 │
-├── scripts/                            # Executable pipeline scripts
-│   ├── 00_verify_env.py                # Verify PyTorch CUDA & GPU environment
-│   ├── 01_check_splits.py              # Validate identity-preserved dataset splits
-│   ├── 02_run_preprocessing.py         # Frame extraction & face alignment pipeline
-│   ├── 03_check_dataloader.py          # PyTorch DataLoader sanity check
-│   ├── 04_train_baseline.py            # Xception baseline training entrypoint
-│   ├── 05_train_sbi_baseline.py        # SBI baseline training entrypoint
-│   ├── 06_train_fusion.py              # Novel Fusion Model training entrypoint
-│   └── 07_run_evaluation.py            # Multi-protocol evaluation suite
+├── scripts/                            # Executable Entrypoints
+│   ├── 00_verify_env.py                # Check PyTorch CUDA & GPU readiness
+│   ├── 01_check_splits.py              # Verify identity-preserved train/val/test splits
+│   ├── 02_run_preprocessing.py         # Extract frames, align faces, build manifest.csv
+│   ├── 03_check_dataloader.py          # Verify PyTorch DataLoader batches & masks
+│   ├── 04_train_baseline.py            # Train Xception baseline model
+│   ├── 05_train_sbi_baseline.py        # Train SBI baseline model
+│   ├── 06_train_fusion.py              # Train Novel Dual-Stream Fusion Model v2
+│   └── 07_run_evaluation.py            # Full evaluation suite (AUC, EER, Pointing Game, IoU)
 │
-├── src/                                # Core codebase library
+├── src/                                # Core Source Code Library
 │   ├── data/
 │   │   ├── __init__.py
-│   │   ├── dataset.py                  # Main FF++ Dataset & DataLoader builder
+│   │   ├── dataset.py                  # Main FF++ PyTorch Dataset & DataLoader builder
 │   │   ├── ffpp_splits.py              # Identity split generator
-│   │   ├── preprocess_ffpp.py          # Face detection & decord video reader
+│   │   ├── preprocess_ffpp.py          # Face detection & decord video fallback reader
 │   │   ├── sbi_blend.py                # Self-blended image augmentation engine
-│   │   └── sbi_dataset.py              # SBI dataset generator with landmark preflight check
+│   │   └── sbi_dataset.py              # SBI dataset reader with landmark preflight check
 │   ├── evaluation/
 │   │   ├── __init__.py
 │   │   ├── evaluate.py                 # Evaluation orchestration module
 │   │   └── metrics.py                  # AUC, AP, EER, Balanced Acc, Heatmap Stats, Pointing Game, IoU
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── baseline.py                 # Xception model architecture
-│   │   └── fusion_model.py             # Dual-stream CLIP + SRM Fusion Model
+│   │   ├── baseline.py                 # Xception baseline model implementation
+│   │   └── fusion_model.py             # Dual-Stream CLIP + SRM Fusion Model architecture
 │   └── training/
 │       ├── __init__.py
-│       ├── checkpoint.py               # Checkpoint manager with patience counter restoration
-│       ├── engine.py                   # Standard training & validation loop engine
+│       ├── checkpoint.py               # Checkpoint saver/loader with patience counter restoration
+│       ├── engine.py                   # Standard training engine
 │       └── train_fusion.py             # Fusion training engine (grad clipping + NaN guards)
 │
-└── tests/                              # Unit & integration tests
+└── tests/                              # Unit & Integration Tests
 ```
