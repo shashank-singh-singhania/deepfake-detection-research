@@ -133,6 +133,12 @@ def main():
               f"mask={train_stats['mask_loss']:.4f}) | val_auc={val_metrics['auc']:.4f} "
               f"val_acc={val_metrics['acc']:.4f} val_pointing_game={val_metrics['pointing_game_acc']:.4f} "
               f"val_mask_iou={val_metrics['mask_iou']:.4f} | lr={optimizer.param_groups[0]['lr']:.2e} | {dt:.1f}s")
+        hs = val_metrics["heatmap_stats"]
+        bti = val_metrics["best_threshold_iou"]
+        print(f"           heatmap: mean={hs['mean']:.4f} p90={hs['p90']:.4f} p99={hs['p99']:.4f} "
+              f"max={hs['max']:.4f} frac>0.5={hs['frac_above_0.5']:.4f} | "
+              f"best_iou={bti['best_iou']:.4f} @thresh={bti['best_threshold']:.2f} "
+              f"(iou@0.5={bti['iou_at_0.5']:.4f})")
         history.append({"epoch": epoch, "epoch_seconds": dt, "lr": optimizer.param_groups[0]["lr"],
                          **train_stats, **{f"val_{k}": v for k, v in val_metrics.items()}})
         with open(run_dir / "history.json", "w") as f:

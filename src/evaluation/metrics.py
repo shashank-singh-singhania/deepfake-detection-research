@@ -79,29 +79,18 @@ def compute_pointing_game_accuracy(heatmaps, masks) -> float:
     return correct / total if total > 0 else float("nan")
 
 
-def compute_mask_iou(heatmaps, masks, heat_threshold=None, mask_threshold: float = 0.5) -> float:
+def compute_mask_iou(heatmaps, masks, heat_threshold: float = 0.5, mask_threshold: float = 0.5) -> float:
     """
     Mean IoU between thresholded predicted heatmaps and ground-truth masks,
     over FAKE samples with a non-empty mask only (see compute_pointing_game_accuracy).
-
-    heat_threshold: if None (default), uses per-sample adaptive threshold =
-        median(heatmap), so the top 50% of activations are treated as the
-        "predicted manipulation region". This is robust to early-training models
-        whose sigmoid outputs cluster in a low range (e.g. 0.01-0.3), where a
-        fixed 0.5 threshold zeros out all predictions giving IoU = 0.0 even
-        when the model is learning the correct spatial region. Once training
-        converges and outputs approach 0/1, the median naturally approaches 0.5.
-        Pass an explicit float to override (e.g. heat_threshold=0.5 for strict
-        evaluation once the model is fully trained).
     """
     ious = []
     for hm, m in zip(heatmaps, masks):
-        hm = np.asarray(hm, dtype=np.float32)
+        hm = np.asarray(hm)
         m = np.asarray(m)
         if m.sum() <= 0:
             continue
-        thresh = float(np.median(hm)) if heat_threshold is None else heat_threshold
-        pred = hm >= thresh
+        pred = hm >= heat_threshold
         gt = m >= mask_threshold
         union = np.logical_or(pred, gt).sum()
         if union == 0:
@@ -110,3 +99,54 @@ def compute_mask_iou(heatmaps, masks, heat_threshold=None, mask_threshold: float
         ious.append(inter / union)
     return float(np.mean(ious)) if ious else float("nan")
 
+
+def compute_heatmap_stats(heatmaps) -> dict:
+    """
+    Diagnostic for interpreting a low compute_mask_iou() result: distinguishes
+    "the heatmap is well-localized but never confident enough to clear a fixed
+    0.5 threshold" (low mean/percentiles, but a real peak — pointing-game
+    accuracy can still be good) from "the head hasn't learned anything useful
+    yet" (flat near-zero everywhere, including at the max).
+
+    heatmaps: iterable of (H, W) arrays, values expected in [0, 1] (sigmoid
+    output). Pools over ALL provided heatmaps' pixels together.
+    """
+    all_vals = np.concatenate([np.asarray(hm).ravel() for hm in heatmaps]) if len(heatmaps) > 0 else np.array([])
+    if all_vals.size == 0:
+        return {"mean": float("nan"), "p50": float("nan"), "p90": float("nan"),
+                "p99": float("nan"), "max": float("nan"), "frac_above_0.5": float("nan")}
+    return {
+        "mean": float(all_vals.mean()),
+        "p50": float(np.percentile(all_vals, 50)),
+        "p90": float(np.percentile(all_vals, 90)),
+        "p99": float(np.percentile(all_vals, 99)),
+        "max": float(all_vals.max()),
+        "frac_above_0.5": float((all_vals >= 0.5).mean()),
+    }
+
+
+def compute_best_threshold_iou(heatmaps, masks, thresholds=None) -> dict:
+    """
+    Sweeps the heatmap binarization threshold and reports the best mean IoU
+    found, alongside the threshold that achieved it and the IoU at the
+    standard fixed 0.5 threshold for comparison. If best_iou >> iou_at_0.5
+    but best_threshold is much lower than 0.5, that confirms a low-confidence
+    (not yet saturated) heatmap rather than a genuinely poorly-localized one
+    — i.e. the model IS finding the right region, just not confidently enough
+    yet for a 0.5 cutoff. Directly diagnostic for the near-zero IoU seen on
+    the first real DGX fusion-model run (pointing-game accuracy was 75%,
+    suggesting the peak location was usually right).
+    """
+    if thresholds is None:
+        thresholds = np.linspace(0.05, 0.95, 19)
+    iou_at_default = compute_mask_iou(heatmaps, masks, heat_threshold=0.5)
+    results = {t: compute_mask_iou(heatmaps, masks, heat_threshold=t) for t in thresholds}
+    valid = {t: v for t, v in results.items() if v == v}  # drop NaNs
+    if not valid:
+        return {"best_iou": float("nan"), "best_threshold": float("nan"), "iou_at_0.5": iou_at_default}
+    best_threshold = max(valid, key=valid.get)
+    return {
+        "best_iou": valid[best_threshold],
+        "best_threshold": float(best_threshold),
+        "iou_at_0.5": iou_at_default,
+    }

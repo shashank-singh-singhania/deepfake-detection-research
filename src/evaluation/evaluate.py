@@ -35,7 +35,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.data.dataset import FFPPDataset
-from src.evaluation.metrics import compute_metrics, compute_pointing_game_accuracy, compute_mask_iou
+from src.evaluation.metrics import (
+    compute_metrics, compute_pointing_game_accuracy, compute_mask_iou,
+    compute_heatmap_stats, compute_best_threshold_iou,
+)
 from src.models.baseline import build_baseline_model
 from src.models.fusion_model import build_fusion_model
 
@@ -119,6 +122,8 @@ def summarize_protocols(records: list) -> dict:
         results["explainability"] = {
             "pointing_game_acc": compute_pointing_game_accuracy(heatmaps, masks),
             "mask_iou": compute_mask_iou(heatmaps, masks),
+            "heatmap_stats": compute_heatmap_stats(heatmaps),
+            "best_threshold_iou": compute_best_threshold_iou(heatmaps, masks),
         }
 
     return results

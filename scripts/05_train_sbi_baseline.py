@@ -40,7 +40,7 @@ import torch
 from torch.optim import AdamW
 
 from src.data.sbi_blend import DlibLandmarkDetector  # noqa: E402
-from src.data.sbi_dataset import build_sbi_dataloaders  # noqa: E402
+from src.data.sbi_dataset import build_sbi_dataloaders, estimate_landmark_failure_rate  # noqa: E402
 from src.models.baseline import build_baseline_model  # noqa: E402
 from src.training.engine import train_one_epoch, evaluate  # noqa: E402
 from src.training.checkpoint import (  # noqa: E402
@@ -68,6 +68,10 @@ def main():
     ap.add_argument("--no_amp", action="store_true")
     ap.add_argument("--no_pretrained", action="store_true", help="Skip ImageNet-pretrained weights (debugging/offline only)")
     ap.add_argument("--resume_from_checkpoint", default=None, help="Path to a latest_checkpoint.pt to resume from")
+    ap.add_argument("--skip_landmark_check", action="store_true",
+                    help="Skip the one-time preflight landmark-failure-rate check before training")
+    ap.add_argument("--landmark_check_sample_size", type=int, default=500,
+                    help="Number of train real images to sample for the landmark-failure-rate preflight check")
     args = ap.parse_args()
 
     run_name = args.run_name or f"sbi_{args.model}_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -80,6 +84,22 @@ def main():
     print(f"Device: {device} | Run dir: {run_dir}")
 
     landmark_detector = DlibLandmarkDetector(args.dlib_predictor_path)
+
+    if args.skip_landmark_check:
+        print("Skipping landmark-failure-rate preflight check (--skip_landmark_check set)")
+    else:
+        print(f"Checking landmark-detection failure rate on up to {args.landmark_check_sample_size} "
+              f"train real images (single-process, one-time preflight — this is NOT run every epoch)...")
+        diag = estimate_landmark_failure_rate(args.manifest, split="train", landmark_detector=landmark_detector,
+                                               sample_size=args.landmark_check_sample_size)
+        print(f"Landmark check: {diag['n_failed']}/{diag['n_checked']} failed "
+              f"({diag['failure_rate']:.1%}) -> these frames fall back to real/real pairs "
+              f"(reduced effective fake training signal), not fabricated fake labels.")
+        if diag["failure_rate"] > 0.15:
+            print(f"[WARN] Landmark failure rate is high ({diag['failure_rate']:.1%}) — a meaningful "
+                  f"fraction of 'fake' training pairs are actually real/real duplicates. This directly "
+                  f"reduces SBI's effective fake supervision and may partly explain low fake-class recall.")
+
     loaders = build_sbi_dataloaders(args.manifest, image_size=args.image_size, batch_size=args.batch_size,
                                      landmark_detector=landmark_detector, num_workers=args.num_workers)
     print(f"train (SBI, real-only source): {len(loaders['train'].dataset)} real images -> "

@@ -91,11 +91,22 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
 @torch.no_grad()
 def evaluate_with_localization(model, loader, device, log_prefix: str = "eval"):
     """
-    Like engine.evaluate(), but also computes pointing-game accuracy and mean
-    IoU on samples that have a non-empty ground-truth mask (fake samples only
-    — see src/evaluation/metrics.py). Requires return_mask=True in the loader.
+    Like engine.evaluate(), but also computes pointing-game accuracy, mean IoU
+    at the standard 0.5 threshold, AND two diagnostics added after the first
+    real DGX run showed pointing-game accuracy (75%) far exceeding IoU@0.5
+    (~6e-5) — a gap consistent with a well-localized but low-confidence
+    (not-yet-saturated) heatmap rather than a genuinely broken localization
+    head:
+      - heatmap_stats: pixel-value percentiles across all evaluated heatmaps
+      - best_threshold_iou: sweeps the binarization threshold and reports the
+        best IoU found + which threshold achieved it, alongside iou@0.5 for
+        comparison
+    Requires return_mask=True in the loader.
     """
-    from src.evaluation.metrics import compute_metrics, compute_pointing_game_accuracy, compute_mask_iou
+    from src.evaluation.metrics import (
+        compute_metrics, compute_pointing_game_accuracy, compute_mask_iou,
+        compute_heatmap_stats, compute_best_threshold_iou,
+    )
 
     model.eval()
     all_labels, all_probs, all_heatmaps, all_masks = [], [], [], []
@@ -117,4 +128,7 @@ def evaluate_with_localization(model, loader, device, log_prefix: str = "eval"):
     metrics = compute_metrics(all_labels, all_probs)
     metrics["pointing_game_acc"] = compute_pointing_game_accuracy(all_heatmaps, all_masks)
     metrics["mask_iou"] = compute_mask_iou(all_heatmaps, all_masks)
+    metrics["heatmap_stats"] = compute_heatmap_stats(all_heatmaps)
+    metrics["best_threshold_iou"] = compute_best_threshold_iou(all_heatmaps, all_masks)
     return metrics
+

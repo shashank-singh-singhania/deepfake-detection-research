@@ -46,7 +46,17 @@ class SBIDataset(Dataset):
             build_train_transform(image_size) if split == "train" else build_eval_transform(image_size)
         )
         self._rng = np.random.default_rng(seed)
-        self._n_landmark_failures = 0  # tracked for diagnostics; check after an epoch if unexpectedly high
+        self._n_landmark_failures = 0
+        # CAVEAT: this counter is only meaningful when the DataLoader uses
+        # num_workers=0. With num_workers>0, PyTorch forks a separate copy of
+        # this dataset object into each worker PROCESS — each worker increments
+        # its OWN copy of this counter, which is never synced back to the main
+        # process and is discarded when workers respawn each epoch. Checking
+        # `dataset._n_landmark_failures` from the main process after a
+        # multi-worker training run will silently under-report (often reads
+        # as 0 or near-0) regardless of the true failure rate. Use
+        # estimate_landmark_failure_rate() below for a reliable measurement
+        # instead — it deliberately runs single-process.
 
     def __len__(self):
         return len(self.df)
@@ -115,3 +125,45 @@ def build_sbi_dataloaders(manifest_csv: str, image_size: int, batch_size: int,
         loaders[split] = DataLoader(ds, batch_size=batch_size, shuffle=False,
                                      num_workers=num_workers, pin_memory=True)
     return loaders
+
+
+def estimate_landmark_failure_rate(manifest_csv: str, split: str, landmark_detector: LandmarkDetector,
+                                    sample_size: Optional[int] = 500, seed: int = 0) -> dict:
+    """
+    Reliably measures how often landmark detection fails on the real (label=0)
+    training images — i.e. how often SBIDataset silently falls back to a
+    real/real pair instead of a real/blended pair (reducing effective fake
+    training signal). Deliberately single-process (no DataLoader/workers) so
+    the count is trustworthy, unlike SBIDataset._n_landmark_failures under
+    multi-worker training (see caveat on that attribute).
+
+    Run this once as a quick preflight check before a long training run —
+    it's a plain Python loop over images, not itself something to run every
+    epoch. `sample_size=None` checks every real image in the split; a few
+    hundred is usually enough to estimate the rate.
+
+    Returns {"n_checked": int, "n_failed": int, "failure_rate": float}.
+    """
+    df = pd.read_csv(manifest_csv)
+    real_df = df[(df["split"] == split) & (df["label"] == 0)].reset_index(drop=True)
+    if len(real_df) == 0:
+        raise ValueError(f"No real (label=0) rows found for split='{split}' in {manifest_csv}")
+
+    if sample_size is not None and sample_size < len(real_df):
+        real_df = real_df.sample(n=sample_size, random_state=seed).reset_index(drop=True)
+
+    n_failed = 0
+    for _, row in real_df.iterrows():
+        img = cv2.imread(row["path"])
+        if img is None:
+            continue  # unreadable file, not a landmark failure — skip rather than miscount
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if landmark_detector.get_landmarks(img) is None:
+            n_failed += 1
+
+    n_checked = len(real_df)
+    return {
+        "n_checked": n_checked,
+        "n_failed": n_failed,
+        "failure_rate": n_failed / n_checked if n_checked > 0 else float("nan"),
+    }
