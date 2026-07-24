@@ -47,7 +47,16 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                 logits, heatmap = model(images, return_heatmap=True)
                 cls_loss = cls_criterion(logits, labels)
                 with torch.autocast(device_type="cuda", enabled=False):
-                    mask_loss = F.binary_cross_entropy(heatmap.float(), masks.float())
+                    # Sanitize before BCE: the CUDA BCE kernel hard-asserts
+                    # input_val in [0,1] at the GPU level, BEFORE our Python
+                    # isfinite check below can run. nan_to_num converts NaN/Inf
+                    # (from corrupt checkpoint weights) to 0.0/1.0 so BCE can
+                    # compute without crashing — the resulting loss will still
+                    # be garbage and caught by the isfinite guard below.
+                    heatmap_safe = torch.nan_to_num(
+                        heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0
+                    ).clamp(0.0, 1.0)
+                    mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
 
             # NaN guard: skip this batch entirely if loss is NaN/Inf.
@@ -68,7 +77,10 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
         else:
             logits, heatmap = model(images, return_heatmap=True)
             cls_loss = cls_criterion(logits, labels)
-            mask_loss = F.binary_cross_entropy(heatmap.float(), masks.float())
+            heatmap_safe = torch.nan_to_num(
+                heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0
+            ).clamp(0.0, 1.0)
+            mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
             loss = cls_weight * cls_loss + mask_weight * mask_loss
             if not torch.isfinite(loss):
                 continue
