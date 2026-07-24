@@ -31,7 +31,103 @@ A **deepfake** is an AI-generated or AI-modified image or video where a person's
 
 ---
 
-## 2. Literature Review & Gap Analysis (Simplified)
+## 2. FaceForensics++ (FF++) Dataset Deep-Dive
+
+### 2.1 Overview & Background
+**FaceForensics++ (FF++)** is the world's most widely recognized benchmark dataset for face forgery detection, created by Rössler et al. (ICCV 2019). 
+- **Total Videos:** 5,000 video sequences (1,000 original authentic YouTube videos + 4,000 manipulated videos).
+- **Total Extracted Frames:** **159,969 aligned face crops** (224x224 and 299x299 resolutions).
+- **Video Format:** MP4 H.264 video sequences.
+
+---
+
+### 2.2 The 4 Manipulation Methods Explained Simply
+
+Each of the 1,000 original real YouTube videos was manipulated using **4 different state-of-the-art forgery techniques**, producing 1,000 fake videos per method (4,000 fake videos total):
+
+```text
+                           1,000 Original Real Videos
+                                       │
+         ┌──────────────────┬──────────┴───────────┬──────────────────┐
+         ▼                  ▼                      ▼                  ▼
+    Deepfakes (DF)    Face2Face (F2F)        FaceSwap (FS)      NeuralTextures (NT)
+   1,000 Fake Videos  1,000 Fake Videos     1,000 Fake Videos  1,000 Fake Videos
+```
+
+1. **Deepfakes (DF):** An autoencoder-based learning method. An encoder network extracts face features, and a target decoder reconstructs a source person's face onto the target actor's body.
+2. **Face2Face (F2F):** Real-time facial expression transfer (puppeteering). The facial movements and expressions of a source actor are transferred onto a target video actor while keeping the target person's face identity intact.
+3. **FaceSwap (FS):** A 3D graphics-based face replacement method. Fits a 3D morphable face model to transfer a source face onto a target face using color correction and Poisson blending.
+4. **NeuralTextures (NT):** A GAN-based neural rendering method. Modifies mouth movements and facial expressions by modifying learned neural texture maps. (This is the most subtle and difficult to detect!).
+
+---
+
+### 2.3 Compression Levels (RAW vs C23 vs C40)
+
+FF++ provides videos at 3 distinct compression levels:
+- **RAW (Uncompressed):** Pristine video quality. Extremely easy for neural networks (>99% accuracy), but unrealistic for internet deployment.
+- **C23 (Medium Compression - H.264 Rate Factor 23):** Standard compression used on social media platforms (YouTube, Twitter, TikTok). Fine pixel details are compressed. **This is our advisor-mandated research benchmark!**
+- **C40 (Heavy Compression - H.264 Rate Factor 40):** Extremely heavy compression. High compression artifacts blur human facial features.
+
+---
+
+### 2.4 Ground-Truth Manipulation Masks
+
+For every fake frame in FF++, a **binary ground-truth mask image** ($224\times224$ or $299\times299$) was generated during video creation:
+- **White Pixels (`255` or `1.0`):** Indicate the exact pixels modified by the deepfake generator (the forged face region).
+- **Black Pixels (`0` or `0.0`):** Indicate unchanged, authentic background pixels.
+- **Real Frames:** Have all-black, all-zero masks ($0.0$).
+
+**How We Use Masks:** Our **Localization / Explainability Head** outputs a 2D spatial heatmap that is trained directly against these ground-truth masks using Binary Cross-Entropy (BCE) loss. We measure heatmap accuracy quantitatively using **Pointing Game Accuracy** and **Mask IoU (Intersection over Union)**.
+
+---
+
+### 2.5 Dataset Splits & Identity-Preserved Protocol
+
+To build a fair, leakage-free benchmark, we split the 1,000 original YouTube video identities into 3 strict subsets in `data/processed/manifest.csv`:
+
+```text
+                           Master Manifest (159,969 Frames)
+                                          │
+       ┌──────────────────────────────────┼──────────────────────────────────┐
+       ▼                                  ▼                                  ▼
+ Train Split (72% Data)            Val Split (14% Data)              Test Split (14% Data)
+ 115,188 Face Frames               22,384 Face Frames                22,397 Face Frames
+ (720 Real + 2,880 Fake Vids)      (140 Real + 560 Fake Vids)        (140 Real + 560 Fake Vids)
+```
+
+- **Train Split:** **115,188 frames** (720 original real videos + 2,880 fake videos).
+- **Validation Split:** **22,384 frames** (140 original real videos + 560 fake videos).
+- **Test Split:** **22,397 frames** (140 original real videos + 560 fake videos).
+
+#### Why Identity-Preserving is Mandatory
+If frames of the same person appeared in both training and test sets, a neural network would cheat by memorizing the person's face shape, skin color, or background. Identity splitting guarantees that **no person in the test set was ever seen during training**, forcing the model to learn universal deepfake artifacts.
+
+---
+
+### 2.6 Class Imbalance & DataLoader Sampling
+
+- **Class Ratio:** Real : Fake = **1 : 4** (23,039 real images vs 92,149 fake images in train).
+- **Why the Imbalance?** Because each real video has 4 corresponding fake versions (one for each manipulation method).
+- **How We Handle It:**
+  1. **DataLoader Sampler:** We use PyTorch `WeightedRandomSampler` during training so each batch contains ~50% real and ~50% fake faces.
+  2. **Balanced Accuracy Metric:** We measure $\text{Balanced Acc} = (\text{Acc}_{\text{real}} + \text{Acc}_{\text{fake}}) / 2$ to prevent class imbalance from skewing evaluation results.
+
+---
+
+### 2.7 Training Data Augmentation Pipeline (Albumentations)
+
+To prevent over-fitting and simulate real-world social media re-encoding, `src/data/dataset.py` applies:
+- **Horizontal Flip (`p=0.5`):** Randomly flips images left-to-right.
+- **Quality Perturbations (`OneOf`, `p=0.5`):**
+  - **JPEG Compression:** Re-compresses image quality between 60% and 100%.
+  - **Gaussian Blur:** Applies mild spatial blurring (kernel size 3x3 to 5x5).
+  - **ISO Noise:** Simulates digital camera sensor noise.
+- **Brightness & Contrast (`limit=0.15`, `p=0.5`):** Adjusts lighting variations.
+- **Resize & Normalization:** Resizes to target resolution ($224\times224$ or $299\times299$) and normalizes using standard ImageNet mean `[0.485, 0.456, 0.406]` and standard deviation `[0.229, 0.224, 0.225]`.
+
+---
+
+## 3. Literature Review & Gap Analysis (Simplified)
 
 ### 2.1 Plain-English Breakdown of 13 Key Research Papers
 
