@@ -69,36 +69,78 @@ A **deepfake** is an AI-generated or AI-modified image or video where a person's
 **Our Goal:** To solve **Gaps #1, #3, and #4** by creating a **Novel Dual-Stream Fusion Model**:
 - **Stream A (Semantic Branch):** Uses a pre-trained **CLIP ViT-B/32** vision-language backbone to capture high-level facial structures and semantic anomalies.
 - **Stream B (Frequency Branch):** Uses **SRM (Spatial Rich Model) high-pass noise filters** followed by a CNN to capture mathematical high-frequency noise hidden in compressed C23 videos.
-- **Dual Heads:** 
-  1. **Classification Head:** Predicts if the image is Real or Fake.
-  2. **Explainability / Localization Head:** Outputs a 2D spatial heatmap of the manipulated face region, supervised directly by FF++ ground-truth masks, and evaluated quantitatively using **Pointing Game Accuracy** and **Mask IoU**.
+### 2.3 Our Selected Research Gap & Solution Architecture (Deep Dive)
+
+#### The Real-World Problem (Explained with an Analogy)
+Imagine a detective trying to spot a forged $100 bill. 
+1. **The Pure RGB Detective (e.g., Xception):** Looks only at colors and shapes. Works great on pristine bills in a bright room, but if the bill is wrinkled or faded (like video compression on social media), they get easily confused.
+2. **The Pure Frequency Detective (e.g., SRM / FFT):** Uses a microscope to look *only* at paper fiber patterns. They find microscopic ink noise, but have zero idea what a portrait of Benjamin Franklin is supposed to look like.
+3. **The Black-Box Classifier:** Stamps the bill as "95% Fake" without telling anyone *which part* of the bill was forged.
+
+#### Our Proposed Solution: The Dual-Stream Fusion Model
+We designed a **Dual-Stream Fusion Architecture** that brings together two specialized "detectives" plus an "evidence highlighter":
+
+```text
+                           Input Face Crop (224 x 224 x 3)
+                                          │
+                   ┌──────────────────────┴──────────────────────┐
+                   ▼                                             ▼
+        Semantic Stream (CLIP ViT-B/32)              Frequency Stream (SRM Noise Filters)
+      Look at facial geometry, eyes, lips,          Look at hidden mathematical noise
+         and high-level visual features               left behind by AI face-swappers
+                   │                                             │
+             512-dim Vector                              128x56x56 Spatial Feature Map
+                   │                                             │
+                   └──────────────────────┬──────────────────────┘
+                                          ▼
+                         Cross-Domain Feature Fusion Layer
+                                          │
+                   ┌──────────────────────┴──────────────────────┐
+                   ▼                                             ▼
+       Classification Output Head                    Localization / Explainability Head
+   Predicts overall REAL vs FAKE score              Outputs a 2D spatial heatmap drawing a
+            (Single Logit / AUC)                   highlighter over the exact fake region
+                                                  (Supervised by ground-truth masks)
+```
+
+1. **Stream 1 (Semantic Detective - CLIP ViT-B/32):** Examines facial symmetry, eye alignment, and natural blending.
+2. **Stream 2 (Frequency Forensic Lab - SRM Noise Filters):** Filters out standard colors using 3 Spatial Rich Model (SRM) high-pass kernels, exposing invisible noise grids left by deepfake generators.
+3. **Fusion Layer:** Combines the semantic vector and frequency spatial map into a single unified representation.
+4. **Dual Output Heads:**
+   - **Classifier:** Predicts whether the image is REAL or FAKE.
+   - **Localization / Explainability Head:** Generates a 2D spatial heatmap showing the exact pixels that were tampered with, validated quantitatively against ground-truth manipulation masks.
 
 ---
 
 ## 3. Project Implementation Status & Step-by-Step Evolution
 
-```mermaid
-flowchart TD
-    A["Raw FF++ C23 Videos (1,000 Real + 4,000 Fake)"] --> B["scripts/02_run_preprocessing.py (Decord/OpenCV + Face Crop & Alignment)"]
-    B --> C["data/processed/manifest.csv (159,969 aligned face crops + GT masks)"]
-    
-    C --> D1["scripts/04_train_baseline.py (Xception Classifier)"]
-    C --> D2["scripts/05_train_sbi_baseline.py (Self-Blended Images)"]
-    C --> D3["scripts/06_train_fusion.py (Novel Fusion Model v2)"]
-    C --> D4["another_model/train.py (TriConsistencyNet Exploration)"]
-    
-    D1 --> E1["experiments/xception_baseline_c23/best_model.pt (AUC: 98.44%)"]
-    D2 --> E2["experiments/sbi_baseline_c23/best_model.pt (AUC: 71.10%)"]
-    D3 --> E3["experiments/fusion_v2_c23/best_model.pt (AUC: 88.24%)"]
-    D4 --> E4["another_model/experiments/triconsistencynet_c23/best_model.pt (AUC: 80.66%)"]
-    
-    E1 & E2 & E3 & E4 --> F["scripts/07_run_evaluation.py & another_model/evaluate.py"]
-    F --> G["project_guide.md & CLAUDE_UPDATE_REPORT.md Benchmark Synthesis"]
-```
+### 3.1 The Step-by-Step Story of How the Project Evolved
 
-### Phase-by-Phase Completion Status
+#### Step 1: Raw Data & Frame Extraction (Setting the Foundation)
+- **Goal:** Convert raw video files into clean, ready-to-train face crops.
+- **Process:** Downloaded 5,000 FaceForensics++ C23 videos (1,000 real + 4,000 fake). Extracted 159,969 aligned face crops at 224x224 and 299x299 resolutions using face detectors (RetinaFace / MTCNN).
+- **Identity-Preserved Splitting:** We organized the dataset into `train` (115,188 frames), `val` (22,384 frames), and `test` (22,397 frames) in `data/processed/manifest.csv`. **Crucial Detail:** All videos of a specific person appear *only* in train, val, OR test—never split across them. This ensures the model learns true deepfake artifacts rather than memorizing people's faces.
 
-| Phase | Task | Status | What Was Accomplished |
+#### Step 2: Baseline Model Training (Setting Benchmark Ceilings & Floors)
+- **Xception Baseline:** Fine-tuned standard Xception on 299x299 crops $\to$ **98.44% AUC** (established our in-distribution performance upper bound).
+- **SBI Baseline (Self-Blended Images):** Trained on synthetic self-blended image pairs $\to$ **71.10% AUC** (established our lower bound). SBI relies on synthetic self-blended noise, which does not match real-world FF++ C23 compressed forgeries without explicit calibration.
+
+#### Step 3: Building & Stabilizing the Novel Dual-Stream Fusion Model
+- **Model Implementation:** Fused CLIP ViT-B/32 + SRM noise filters + spatial localization head in `src/models/fusion_model.py`.
+- **The First Training Crash (v1):** At epoch 12, FP16 half-precision gradients exploded under mixed-precision AMP, poisoning BatchNorm statistics with NaN values and crashing GPU memory.
+- **Engineering Fixes:** We introduced gradient unscaling before clipping, enforced `max_grad_norm=1.0` gradient clipping, and added `nan_to_num` + `clamp(0,1)` guards to prevent CUDA device-side assertions.
+- **Clean Training (v2):** Trained all 30 epochs cleanly $\to$ **88.24% AUC**, 66.65% Pointing Game Accuracy, and 38.69% optimal Mask IoU.
+
+#### Step 4: Alternative Exploration (TriConsistencyNet)
+- **Exploration:** To test whether explicit spatial-frequency product attention could rival our Fusion model, we implemented **TriConsistencyNet** (`another_model/`) combining a frozen `EfficientNetV2-S` backbone with a 2D Fast Fourier Transform (FFT) magnitude encoder.
+- **Result:** Trained for 22 epochs $\to$ **80.66% AUC**.
+- **Conclusion:** TriConsistencyNet outperformed SBI (80.66% vs 71.10%), but our Dual-Stream CLIP + SRM Fusion Model proved superior (88.24% AUC) because unfrozen CLIP transformer layers provide far better joint spatial-frequency alignment than a frozen EfficientNet backbone.
+
+---
+
+### 3.2 Complete Phase-by-Phase Status Table
+
+| Phase | Project Phase | Status | What Was Accomplished & Key Deliverables |
 |---|---|---|---|
 | **Phase 0** | Environment Setup | **100% Done** | Installed PyTorch with CUDA 12.4, `timm`, `open_clip_torch`, `albumentations`, `decord` on DGX A100. Pinned in `requirements.txt`. |
 | **Phase 1 & 2** | Data Acquisition & Preprocessing | **100% Done** | Processed 5,000 videos into 159,969 aligned 224x224 / 299x299 face crops. Created master `manifest.csv` with identity-preserved splits (`train`: 115,188, `val`: 22,384, `test`: 22,397) and ground-truth mask locations. |
