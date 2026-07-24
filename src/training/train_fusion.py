@@ -50,10 +50,13 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                     mask_loss = F.binary_cross_entropy(heatmap.float(), masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
 
-            # NaN guard: skip this batch entirely if loss is NaN/Inf
+            # NaN guard: skip this batch entirely if loss is NaN/Inf.
+            # Do NOT call scaler.update() here — GradScaler requires that
+            # scaler.scale(loss).backward() has been called first (it records
+            # inf-checks during backward); calling update() without a prior
+            # backward triggers "No inf checks were recorded prior to update."
             if not torch.isfinite(loss):
                 pbar.set_postfix(loss="NaN-SKIP")
-                scaler.update()  # still update scale factor (it will reduce it)
                 continue
 
             scaler.scale(loss).backward()
