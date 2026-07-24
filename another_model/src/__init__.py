@@ -1,0 +1,1 @@
+# TriConsistencyNet - self-contained implementation
