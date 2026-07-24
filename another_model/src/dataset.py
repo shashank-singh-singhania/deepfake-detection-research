@@ -16,15 +16,22 @@ from albumentations.pytorch import ToTensorV2
 import numpy as np
 
 
-# ── Augmentation pipelines ────────────────────────────────────────────────────
+def _get_image_compression():
+    try:
+        return A.ImageCompression(quality_range=(60, 100), p=1.0)
+    except Exception:
+        return A.ImageCompression(quality_lower=60, quality_upper=100, p=1.0)
+
 
 def _train_transforms(image_size: int = 224) -> A.Compose:
     return A.Compose([
-        A.RandomResizedCrop(height=image_size, width=image_size, scale=(0.85, 1.0)),
         A.HorizontalFlip(p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.05, p=0.5),
-        A.GaussianBlur(blur_limit=(3, 5), p=0.2),
-        A.ImageCompression(quality_lower=70, quality_upper=100, p=0.3),
+        A.OneOf([
+            _get_image_compression(),
+            A.GaussianBlur(blur_limit=(3, 5), p=1.0),
+        ], p=0.5),
+        A.RandomBrightnessContrast(brightness_limit=0.15, contrast_limit=0.15, p=0.5),
+        A.Resize(image_size, image_size),
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
@@ -32,7 +39,7 @@ def _train_transforms(image_size: int = 224) -> A.Compose:
 
 def _eval_transforms(image_size: int = 224) -> A.Compose:
     return A.Compose([
-        A.Resize(height=image_size, width=image_size),
+        A.Resize(image_size, image_size),
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
