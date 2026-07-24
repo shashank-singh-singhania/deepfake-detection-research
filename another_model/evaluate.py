@@ -110,9 +110,9 @@ def main():
     print(f"All methods combined: {overall_metrics}")
 
     print("Per-method breakdown:")
-    methods_unique = set(all_methods) - {"real", "unknown"}
-    for m in sorted(methods_unique):
-        m_mask = (all_methods == m) | (all_methods == "real")
+    fake_methods = sorted(list(set(all_methods[all_targets == 1])))
+    for m in fake_methods:
+        m_mask = (all_methods == m) | (all_targets == 0)
         m_probs = all_probs[m_mask]
         m_targets = all_targets[m_mask]
         m_metrics = compute_metrics(m_probs, m_targets)
