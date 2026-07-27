@@ -15,6 +15,7 @@ import json
 import random
 from tqdm import tqdm
 from os.path import join
+import shutil
 
 
 # URLs and filenames
@@ -118,30 +119,57 @@ def reporthook(count, block_size, total_size):
     sys.stdout.flush()
 
 
-def download_file(url, out_file, report_progress=False):
+def fetch_url(url, retries=5, delay=2):
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    req = urllib.request.Request(url, headers=headers)
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.read().decode("utf-8")
+        except Exception as e:
+            if attempt == retries - 1:
+                raise e
+            time.sleep(delay * (attempt + 1))
+
+
+def download_file(url, out_file, report_progress=False, retries=5):
     out_dir = os.path.dirname(out_file)
+    os.makedirs(out_dir, exist_ok=True)
     if not os.path.isfile(out_file):
-        fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
-        f = os.fdopen(fh, 'w')
-        f.close()
-        if report_progress:
-            urllib.request.urlretrieve(url, out_file_tmp,
-                                       reporthook=reporthook)
-        else:
-            urllib.request.urlretrieve(url, out_file_tmp)
-        os.rename(out_file_tmp, out_file)
+        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
+        for attempt in range(retries):
+            try:
+                fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
+                f = os.fdopen(fh, 'w')
+                f.close()
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req) as resp, open(out_file_tmp, 'wb') as out_f:
+                    shutil.copyfileobj(resp, out_f)
+                os.rename(out_file_tmp, out_file)
+                break
+            except Exception as e:
+                if os.path.exists(out_file_tmp):
+                    try:
+                        os.remove(out_file_tmp)
+                    except Exception:
+                        pass
+                if attempt == retries - 1:
+                    tqdm.write(f"ERROR: Failed to download {url}: {e}")
+                    raise e
+                time.sleep(1 * (attempt + 1))
     else:
         tqdm.write('WARNING: skipping download of existing file ' + out_file)
 
 
 def main(args):
     # TOS
-    print('By pressing any key to continue you confirm that you have agreed '\
-          'to the FaceForensics terms of use as described at:')
-    print(args.tos_url)
-    print('***')
-    print('Press any key to continue, or CTRL-C to exit.')
-    _ = input('')
+    if not getattr(args, "yes", False):
+        print('By pressing any key to continue you confirm that you have agreed '\
+              'to the FaceForensics terms of use as described at:')
+        print(args.tos_url)
+        print('***')
+        print('Press any key to continue, or CTRL-C to exit.')
+        _ = input('')
 
     # Extract arguments
     c_datasets = [args.dataset] if args.dataset != 'all' else ALL_DATASETS
@@ -162,7 +190,7 @@ def main(args):
                 print('Please be patient, this may take a while (~40gb)')
                 suffix = ''
             else:
-            	suffix = 'info'
+                suffix = 'info'
             download_file(args.base_url + '/' + dataset_path,
                           out_file=join(output_path,
                                         'downloaded_videos{}.zip'.format(
@@ -177,23 +205,20 @@ def main(args):
 
         # Get filelists and video lenghts list from server
         if 'DeepFakeDetection' in dataset_path or 'actors' in dataset_path:
-        	filepaths = json.loads(urllib.request.urlopen(args.base_url + '/' +
-                DEEPFEAKES_DETECTION_URL).read().decode("utf-8"))
-        	if 'actors' in dataset_path:
-        		filelist = filepaths['actors']
-        	else:
-        		filelist = filepaths['DeepFakesDetection']
+            filepaths = json.loads(fetch_url(args.base_url + '/' + DEEPFEAKES_DETECTION_URL))
+            if 'actors' in dataset_path:
+                filelist = filepaths['actors']
+            else:
+                filelist = filepaths['DeepFakesDetection']
         elif 'original' in dataset_path:
             # Load filelist from server
-            file_pairs = json.loads(urllib.request.urlopen(args.base_url + '/' +
-                FILELIST_URL).read().decode("utf-8"))
+            file_pairs = json.loads(fetch_url(args.base_url + '/' + FILELIST_URL))
             filelist = []
             for pair in file_pairs:
-            	filelist += pair
+                filelist += pair
         else:
             # Load filelist from server
-            file_pairs = json.loads(urllib.request.urlopen(args.base_url + '/' +
-                FILELIST_URL).read().decode("utf-8"))
+            file_pairs = json.loads(fetch_url(args.base_url + '/' + FILELIST_URL))
             # Get filelist
             filelist = []
             for pair in file_pairs:
