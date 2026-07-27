@@ -184,13 +184,16 @@ def download_file(url, out_file, report_progress=False, retries=3):
 
 def main(args):
     # TOS
-    if not getattr(args, "yes", False):
+    if sys.stdin.isatty() and not getattr(args, "yes", False):
         print('By pressing any key to continue you confirm that you have agreed '\
               'to the FaceForensics terms of use as described at:')
         print(args.tos_url)
         print('***')
         print('Press any key to continue, or CTRL-C to exit.')
-        _ = input('')
+        try:
+            _ = input('')
+        except Exception:
+            pass
 
     # Extract arguments
     c_datasets = [args.dataset] if args.dataset != 'all' else ALL_DATASETS
