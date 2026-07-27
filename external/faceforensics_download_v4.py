@@ -75,6 +75,8 @@ def parse_args():
                         help='Server to download the data from. Default set to EU2 mirror (kaldir.vc.in.tum.de).',
                         choices=SERVERS
                         )
+    parser.add_argument('--threads', type=int, default=8,
+                        help='Number of parallel download threads (default: 8). Increase to 16 for faster downloads.')
     args = parser.parse_args()
 
     # URLs
