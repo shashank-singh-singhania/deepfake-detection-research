@@ -128,10 +128,16 @@ def download_files(filenames, base_url, output_path, report_progress=True, threa
         futures = [executor.submit(download_file, base_url + f, join(output_path, f)) for f in filenames]
         if report_progress:
             for f in tqdm(as_completed(futures), total=len(filenames), desc="Downloading"):
-                f.result()
+                try:
+                    f.result()
+                except Exception as err:
+                    tqdm.write(f"WARNING: skipped a file due to network error ({err}), will retry on next run.")
         else:
             for f in as_completed(futures):
-                f.result()
+                try:
+                    f.result()
+                except Exception:
+                    pass
 
 
 def download_file(url, out_file, report_progress=False, retries=3):
