@@ -71,20 +71,18 @@ def parse_args():
                         help='Select a number of videos number to '
                              "download if you don't want to download the full"
                              ' dataset.')
-    parser.add_argument('--server', type=str, default='EU',
-                        help='Server to download the data from. If you '
-                             'encounter a slow download speed, consider '
-                             'changing the server.',
+    parser.add_argument('--server', type=str, default='EU2',
+                        help='Server to download the data from. Default set to EU2 mirror (kaldir.vc.in.tum.de).',
                         choices=SERVERS
                         )
     args = parser.parse_args()
 
     # URLs
     server = args.server
-    if server == 'EU':
-        server_url = 'http://canis.vc.in.tum.de:8100/'
-    elif server == 'EU2':
+    if server == 'EU2':
         server_url = 'http://kaldir.vc.in.tum.de/faceforensics/'
+    elif server == 'EU':
+        server_url = 'http://canis.vc.in.tum.de:8100/'
     elif server == 'CA':
         server_url = 'http://falas.cmpt.sfu.ca:8100/'
     else:
@@ -97,68 +95,70 @@ def parse_args():
     return args
 
 
-def download_files(filenames, base_url, output_path, report_progress=True):
-    os.makedirs(output_path, exist_ok=True)
-    if report_progress:
-        filenames = tqdm(filenames)
-    for filename in filenames:
-        download_file(base_url + filename, join(output_path, filename))
-
-
-def reporthook(count, block_size, total_size):
-    global start_time
-    if count == 0:
-        start_time = time.time()
-        return
-    duration = time.time() - start_time
-    progress_size = int(count * block_size)
-    speed = int(progress_size / (1024 * duration))
-    percent = int(count * block_size * 100 / total_size)
-    sys.stdout.write("\rProgress: %d%%, %d MB, %d KB/s, %d seconds passed" %
-                     (percent, progress_size / (1024 * 1024), speed, duration))
-    sys.stdout.flush()
-
-
 def fetch_url(url, retries=5, delay=2):
+    # Try given URL first, then try alternate server mirrors if connection is reset
+    urls_to_try = [url]
+    if 'canis.vc.in.tum.de:8100' in url:
+        urls_to_try.append(url.replace('http://canis.vc.in.tum.de:8100/', 'http://kaldir.vc.in.tum.de/faceforensics/'))
+        urls_to_try.append(url.replace('http://canis.vc.in.tum.de:8100/', 'http://falas.cmpt.sfu.ca:8100/'))
+    elif 'kaldir.vc.in.tum.de/faceforensics' in url:
+        urls_to_try.append(url.replace('http://kaldir.vc.in.tum.de/faceforensics/', 'http://falas.cmpt.sfu.ca:8100/'))
+        urls_to_try.append(url.replace('http://kaldir.vc.in.tum.de/faceforensics/', 'http://canis.vc.in.tum.de:8100/'))
+
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-    req = urllib.request.Request(url, headers=headers)
-    for attempt in range(retries):
-        try:
-            with urllib.request.urlopen(req) as resp:
-                return resp.read().decode("utf-8")
-        except Exception as e:
-            if attempt == retries - 1:
-                raise e
-            time.sleep(delay * (attempt + 1))
-
-
-def download_file(url, out_file, report_progress=False, retries=5):
-    out_dir = os.path.dirname(out_file)
-    os.makedirs(out_dir, exist_ok=True)
-    if not os.path.isfile(out_file):
-        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
+    last_err = None
+    for u in urls_to_try:
+        req = urllib.request.Request(u, headers=headers)
         for attempt in range(retries):
             try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return resp.read().decode("utf-8")
+            except Exception as e:
+                last_err = e
+                time.sleep(delay)
+    raise last_err
+
+
+def download_file(url, out_file, report_progress=False, retries=3):
+    out_dir = os.path.dirname(out_file)
+    os.makedirs(out_dir, exist_ok=True)
+    if os.path.isfile(out_file):
+        tqdm.write('WARNING: skipping download of existing file ' + out_file)
+        return
+
+    urls_to_try = [url]
+    if 'canis.vc.in.tum.de:8100' in url:
+        urls_to_try.append(url.replace('http://canis.vc.in.tum.de:8100/', 'http://kaldir.vc.in.tum.de/faceforensics/'))
+        urls_to_try.append(url.replace('http://canis.vc.in.tum.de:8100/', 'http://falas.cmpt.sfu.ca:8100/'))
+    elif 'kaldir.vc.in.tum.de/faceforensics' in url:
+        urls_to_try.append(url.replace('http://kaldir.vc.in.tum.de/faceforensics/', 'http://canis.vc.in.tum.de:8100/'))
+        urls_to_try.append(url.replace('http://kaldir.vc.in.tum.de/faceforensics/', 'http://falas.cmpt.sfu.ca:8100/'))
+    elif 'falas.cmpt.sfu.ca:8100' in url:
+        urls_to_try.append(url.replace('http://falas.cmpt.sfu.ca:8100/', 'http://kaldir.vc.in.tum.de/faceforensics/'))
+
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+    last_err = None
+    for target_url in urls_to_try:
+        for attempt in range(retries):
+            out_file_tmp = None
+            try:
                 fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
-                f = os.fdopen(fh, 'w')
-                f.close()
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req) as resp, open(out_file_tmp, 'wb') as out_f:
+                os.close(fh)
+                req = urllib.request.Request(target_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as resp, open(out_file_tmp, 'wb') as out_f:
                     shutil.copyfileobj(resp, out_f)
                 os.rename(out_file_tmp, out_file)
-                break
+                return
             except Exception as e:
-                if os.path.exists(out_file_tmp):
+                last_err = e
+                if out_file_tmp and os.path.exists(out_file_tmp):
                     try:
                         os.remove(out_file_tmp)
                     except Exception:
                         pass
-                if attempt == retries - 1:
-                    tqdm.write(f"ERROR: Failed to download {url}: {e}")
-                    raise e
-                time.sleep(1 * (attempt + 1))
-    else:
-        tqdm.write('WARNING: skipping download of existing file ' + out_file)
+                time.sleep(1)
+    tqdm.write(f"ERROR: Failed to download {url}: {last_err}")
+    raise last_err
 
 
 def main(args):
