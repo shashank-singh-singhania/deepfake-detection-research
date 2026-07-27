@@ -34,6 +34,7 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
     cls_criterion = nn.BCEWithLogitsLoss()
     total_loss, total_cls_loss, total_mask_loss = 0.0, 0.0, 0.0
     n_samples = 0
+    n_skipped_nan = 0
 
     pbar = tqdm(loader, desc=log_prefix, leave=False)
     for batch in pbar:
@@ -59,12 +60,8 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                     mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
 
-            # NaN guard: skip this batch entirely if loss is NaN/Inf.
-            # Do NOT call scaler.update() here — GradScaler requires that
-            # scaler.scale(loss).backward() has been called first (it records
-            # inf-checks during backward); calling update() without a prior
-            # backward triggers "No inf checks were recorded prior to update."
             if not torch.isfinite(loss):
+                n_skipped_nan += 1
                 pbar.set_postfix(loss="NaN-SKIP")
                 continue
 
@@ -83,6 +80,7 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
             mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
             loss = cls_weight * cls_loss + mask_weight * mask_loss
             if not torch.isfinite(loss):
+                n_skipped_nan += 1
                 continue
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -95,11 +93,16 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
         n_samples += bs
         pbar.set_postfix(loss=f"{loss.item():.4f}", cls=f"{cls_loss.item():.4f}", mask=f"{mask_loss.item():.4f}")
 
+    if n_skipped_nan > 0:
+        print(f"[WARN] {log_prefix}: skipped {n_skipped_nan} batch(es) with non-finite loss "
+              f"(optimizer step NOT taken for these — weights were not updated from them)")
+
     n_samples = max(n_samples, 1)
     return {
         "loss": total_loss / n_samples,
         "cls_loss": total_cls_loss / n_samples,
         "mask_loss": total_mask_loss / n_samples,
+        "n_skipped_nan": n_skipped_nan,
     }
 
 

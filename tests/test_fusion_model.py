@@ -171,6 +171,57 @@ def test_localization_metrics():
     print(f"[PASS] localization metrics correct: pointing_game_acc={pg_acc}, mean_iou={iou} (real/empty-mask samples correctly skipped)")
 
 
+def test_heatmap_stats():
+    from src.evaluation.metrics import compute_heatmap_stats
+    import numpy as np
+
+    # a heatmap that is mostly low-confidence but has a few higher-value pixels
+    heat0 = np.full((10, 10), 0.05)
+    heat0[3, 3] = 0.9
+    heat1 = np.full((10, 10), 0.02)
+
+    stats = compute_heatmap_stats([heat0, heat1])
+    assert 0.0 <= stats["mean"] <= 1.0
+    assert stats["max"] == 0.9
+    # only 1 pixel out of 200 total is >= 0.5 -> frac_above_0.5 should be tiny
+    assert stats["frac_above_0.5"] < 0.01
+    print(f"[PASS] compute_heatmap_stats correct: mean={stats['mean']:.4f}, max={stats['max']}, "
+          f"frac_above_0.5={stats['frac_above_0.5']:.4f}")
+
+    empty_stats = compute_heatmap_stats([])
+    assert all(v != v for v in empty_stats.values() if isinstance(v, float))  # all NaN
+    print("[PASS] compute_heatmap_stats handles empty input without crashing")
+
+
+def test_best_threshold_iou_recovers_low_confidence_heatmap():
+    """Directly reproduces the DGX-run scenario: a heatmap whose peak is
+    correctly located inside the mask (good pointing-game accuracy) but whose
+    values never clear 0.5 (near-zero IoU@0.5). Confirms compute_best_threshold_iou
+    finds a much better IoU at a lower threshold, giving the intended diagnostic
+    signal: 'well-localized but under-confident', not 'broken localization'."""
+    from src.evaluation.metrics import compute_best_threshold_iou, compute_mask_iou
+    import numpy as np
+
+    mask = np.zeros((20, 20))
+    mask[5:15, 5:15] = 1.0  # a 10x10 fake region
+
+    # heatmap peak is centered correctly inside the mask, but only reaches 0.3
+    # everywhere inside it — never crosses the standard 0.5 cutoff
+    heat = np.zeros((20, 20))
+    heat[5:15, 5:15] = 0.3
+
+    iou_at_default = compute_mask_iou([heat], [mask], heat_threshold=0.5)
+    assert iou_at_default == 0.0, f"expected exactly 0 IoU at threshold 0.5 (heatmap never reaches it), got {iou_at_default}"
+
+    result = compute_best_threshold_iou([heat], [mask])
+    assert result["iou_at_0.5"] == 0.0
+    assert result["best_iou"] > 0.9, f"expected near-perfect IoU once thresholded below 0.3, got {result}"
+    assert result["best_threshold"] <= 0.3, f"expected best_threshold <= 0.3, got {result['best_threshold']}"
+    print(f"[PASS] compute_best_threshold_iou correctly recovers a low-confidence-but-well-localized "
+          f"heatmap: iou@0.5={result['iou_at_0.5']}, best_iou={result['best_iou']:.4f} "
+          f"@threshold={result['best_threshold']}")
+
+
 def test_fusion_training_loop_mini():
     """End-to-end: build tiny synthetic manifest (with masks) -> real
     build_dataloaders(return_mask=True) -> one epoch of train_one_epoch_fusion
@@ -235,6 +286,91 @@ def test_fusion_training_loop_mini():
           f"val_pointing_game={val_metrics['pointing_game_acc']})")
 
 
+def test_fusion_nan_guard_prevents_weight_corruption():
+    """Reproduces the exact failure mode that corrupted fusion_v1_c23's
+    latest_checkpoint.pt with NaN weights on the real DGX run (crashed around
+    epoch 12, under AMP). Confirms train_one_epoch_fusion's NaN guard skips
+    that batch's optimizer step rather than letting NaN reach the weights.
+
+    Uses a tiny mock model with the same forward(x, return_heatmap=...)
+    signature as FusionDeepfakeDetector, rather than the real CLIP-based
+    architecture — this test is about the TRAINING LOOP's NaN-handling logic
+    (what actually changed), not the model itself (already covered by
+    test_fusion_training_loop_mini), and stays lightweight regardless of
+    environment memory constraints.
+    """
+    import io
+    import contextlib
+    import torch.nn as nn
+    from src.training.train_fusion import train_one_epoch_fusion
+
+    class TinyFusionMock(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(3, 4, 3, padding=1)
+            self.cls_head = nn.Linear(4, 1)
+            self.heat_head = nn.Conv2d(4, 1, 1)
+
+        def forward(self, x, return_heatmap=False):
+            feat = self.conv(x)
+            pooled = feat.mean(dim=[2, 3])
+            logit = self.cls_head(pooled).squeeze(-1)
+            if return_heatmap:
+                heat = torch.sigmoid(self.heat_head(feat)).squeeze(1)
+                return logit, heat
+            return logit
+
+    size = 16  # tiny — this test only exercises loop logic, not real image content
+    n_samples = 8
+    images = torch.randn(n_samples, 3, size, size)
+    labels = torch.randint(0, 2, (n_samples,)).float()
+    masks = torch.rand(n_samples, size, size)
+
+    from torch.utils.data import Dataset, DataLoader
+
+    class TinyDataset(Dataset):
+        def __len__(self):
+            return n_samples
+
+        def __getitem__(self, idx):
+            return {"image": images[idx], "label": labels[idx], "mask": masks[idx]}
+
+    loader = DataLoader(TinyDataset(), batch_size=4, shuffle=False)
+
+    model = TinyFusionMock()
+    device = "cpu"
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+    original_forward = model.forward
+    call_count = {"n": 0}
+
+    def flaky_forward(x, return_heatmap=False):
+        call_count["n"] += 1
+        logit, heatmap = original_forward(x, return_heatmap=True)
+        if call_count["n"] == 1:
+            logit = logit * float("nan")
+        if return_heatmap:
+            return logit, heatmap
+        return logit
+
+    model.forward = flaky_forward
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        train_stats = train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
+                                              mask_weight=1.0, log_prefix="test-fusion-train-nan")
+
+    assert "[WARN]" in captured.getvalue() and "non-finite loss" in captured.getvalue(), \
+        "expected a NaN-skip warning to be printed"
+    assert train_stats["n_skipped_nan"] >= 1
+    assert all(v == v for v in train_stats.values()), f"epoch-average stats should still be valid floats: {train_stats}"
+
+    all_finite = all(torch.isfinite(p).all() for p in model.parameters())
+    assert all_finite, "model weights must remain finite after a NaN batch — this is the exact corruption seen in fusion_v1_c23"
+    print(f"[PASS] fusion NaN guard prevented weight corruption "
+          f"(n_skipped_nan={train_stats['n_skipped_nan']}, all weights finite)")
+
+
 if __name__ == "__main__":
     test_frequency_branch_shape()
     test_srm_kernels_are_fixed_not_trainable()
@@ -244,5 +380,8 @@ if __name__ == "__main__":
     test_full_model_forward_and_gradients()
     test_parameter_counts_sane()
     test_localization_metrics()
+    test_heatmap_stats()
+    test_best_threshold_iou_recovers_low_confidence_heatmap()
     test_fusion_training_loop_mini()
+    test_fusion_nan_guard_prevents_weight_corruption()
     print("\nALL FUSION MODEL TESTS PASSED")

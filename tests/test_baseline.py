@@ -98,9 +98,61 @@ def test_mini_training_loop():
     assert isinstance(train_loss, float) and train_loss == train_loss, "train loss should be a valid float (not NaN)"
 
     val_metrics, val_labels, val_probs = evaluate(model, loaders["val"], device, log_prefix="test-val")
-    assert set(val_metrics.keys()) == {"auc", "ap", "eer", "acc"}
+    assert set(val_metrics.keys()) == {"auc", "ap", "eer", "acc", "balanced_acc"}
     assert len(val_labels) == 20  # 4 real + 16 fake
     print(f"[PASS] mini training loop ran end-to-end (train_loss={train_loss:.4f}, val_auc={val_metrics['auc']:.3f})")
+
+    shutil.rmtree(SCRATCH, ignore_errors=True)
+
+
+def test_nan_guard_prevents_weight_corruption():
+    """Reproduces (in miniature) the failure mode that corrupted
+    fusion_v1_c23's checkpoint on the real DGX run: a batch that produces a
+    NaN loss. Confirms train_one_epoch's NaN guard skips that batch's
+    optimizer step entirely rather than letting NaN propagate into the
+    model's weights."""
+    import io
+    import contextlib
+    from src.data.dataset import build_dataloaders
+    from src.models.baseline import build_baseline_model
+    from src.training.engine import train_one_epoch
+
+    manifest_path = build_synthetic_manifest()
+    loaders = build_dataloaders(str(manifest_path), image_size=64, batch_size=4,
+                                 num_workers=0, return_mask=False, balance_train=True)
+
+    model = build_baseline_model("xception", pretrained=False)
+    device = "cpu"
+    model.to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+    # force the FIRST forward pass of the epoch to return NaN logits, simulating
+    # an unstable batch, then let subsequent batches behave normally
+    original_forward = model.forward
+    call_count = {"n": 0}
+
+    def flaky_forward(x):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            out = original_forward(x)
+            return out * float("nan")
+        return original_forward(x)
+
+    model.forward = flaky_forward
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        train_loss = train_one_epoch(model, loaders["train"], optimizer, device, scaler=None,
+                                      log_prefix="test-train-nan")
+
+    assert "[WARN]" in captured.getvalue() and "non-finite loss" in captured.getvalue(), \
+        "expected a NaN-skip warning to be printed"
+    assert train_loss == train_loss, "epoch-average train_loss should still be a valid float, not NaN"
+
+    all_finite = all(torch.isfinite(p).all() for p in model.parameters())
+    assert all_finite, "model weights must remain finite after a NaN batch — this is the exact corruption seen in fusion_v1_c23"
+    print(f"[PASS] NaN guard prevented weight corruption from an injected non-finite-loss batch "
+          f"(train_loss={train_loss:.4f}, all weights finite)")
 
     shutil.rmtree(SCRATCH, ignore_errors=True)
 
@@ -109,4 +161,5 @@ if __name__ == "__main__":
     test_metrics_known_cases()
     test_model_forward_shape()
     test_mini_training_loop()
+    test_nan_guard_prevents_weight_corruption()
     print("\nALL BASELINE TESTS PASSED")
