@@ -119,6 +119,14 @@ def fetch_url(url, retries=5, delay=2):
     raise last_err
 
 
+def download_files(filenames, base_url, output_path, report_progress=True):
+    os.makedirs(output_path, exist_ok=True)
+    if report_progress:
+        filenames = tqdm(filenames)
+    for filename in filenames:
+        download_file(base_url + filename, join(output_path, filename))
+
+
 def download_file(url, out_file, report_progress=False, retries=3):
     out_dir = os.path.dirname(out_file)
     os.makedirs(out_dir, exist_ok=True)
