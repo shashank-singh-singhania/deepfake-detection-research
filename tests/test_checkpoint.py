@@ -74,7 +74,8 @@ def test_checkpoint_save_load_roundtrip():
         scheduler.step()
 
     history = [{"epoch": 0, "train_loss": 0.5}, {"epoch": 1, "train_loss": 0.3}]
-    save_full_checkpoint(ckpt_path, model, optimizer, scheduler, epoch=1, best_val_auc=0.83, history=history)
+    save_full_checkpoint(ckpt_path, model, optimizer, scheduler, epoch=1, best_val_auc=0.83,
+                          history=history, patience_counter=3)
 
     # build FRESH model/optimizer/scheduler and confirm loading restores everything
     model2 = _tiny_model()
@@ -93,7 +94,46 @@ def test_checkpoint_save_load_roundtrip():
     assert state["start_epoch"] == 2, f"expected start_epoch=2 (epoch+1), got {state['start_epoch']}"
     assert state["best_val_auc"] == 0.83
     assert state["history"] == history
-    print("[PASS] checkpoint save/load round trip: model, optimizer, scheduler, and metadata all restored correctly")
+    assert state["patience_counter"] == 3, \
+        "patience_counter must round-trip exactly — a resumed run must not silently reset early-stopping progress"
+    print("[PASS] checkpoint save/load round trip: model, optimizer, scheduler, history, "
+          "and patience_counter all restored correctly")
+
+    shutil.rmtree(SCRATCH, ignore_errors=True)
+
+
+def test_checkpoint_patience_counter_backward_compatible():
+    """Older checkpoints saved before patience_counter existed should load
+    with a safe default of 0, not crash with a KeyError."""
+    from src.training.checkpoint import load_full_checkpoint, build_scheduler
+    import torch as _torch
+
+    if SCRATCH.exists():
+        shutil.rmtree(SCRATCH)
+    SCRATCH.mkdir(parents=True)
+    ckpt_path = SCRATCH / "old_style_checkpoint.pt"
+
+    model = _tiny_model()
+    optimizer = _torch.optim.AdamW(model.parameters(), lr=1e-3)
+    scheduler = build_scheduler("none", optimizer, epochs=10)
+
+    # simulate an OLD checkpoint dict, saved before patience_counter was added
+    _torch.save({
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": None,
+        "epoch": 4,
+        "best_val_auc": 0.7,
+        "history": [],
+    }, ckpt_path)
+
+    model2 = _tiny_model()
+    optimizer2 = _torch.optim.AdamW(model2.parameters(), lr=1e-3)
+    scheduler2 = build_scheduler("none", optimizer2, epochs=10)
+    state = load_full_checkpoint(ckpt_path, model2, optimizer2, scheduler2, device="cpu")
+
+    assert state["patience_counter"] == 0, "missing patience_counter in an old checkpoint should default to 0"
+    print("[PASS] loading a pre-patience_counter checkpoint defaults safely to 0 (backward compatible)")
 
     shutil.rmtree(SCRATCH, ignore_errors=True)
 
@@ -101,4 +141,5 @@ def test_checkpoint_save_load_roundtrip():
 if __name__ == "__main__":
     test_scheduler_construction_and_stepping()
     test_checkpoint_save_load_roundtrip()
+    test_checkpoint_patience_counter_backward_compatible()
     print("\nALL CHECKPOINT TESTS PASSED")

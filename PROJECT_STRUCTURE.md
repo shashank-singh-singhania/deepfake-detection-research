@@ -31,7 +31,7 @@ deepfake-detection-research/
 │   │   ├── preprocess_ffpp.py    # face detection/crop/align + mask alignment + manifest writer
 │   │   ├── dataset.py            # PyTorch Dataset/DataLoader on manifest.csv (aug, norm, mask, class balance, train/val vs test method filtering for leave-one-out)
 │   │   ├── sbi_blend.py          # SBI self-blending algorithm (landmark mask, asymmetric transforms, misalign+blend)
-│   │   └── sbi_dataset.py        # SBI training dataset (real/blended pairing) + balanced collate_fn
+│   │   └── sbi_dataset.py        # SBI training dataset (real/blended pairing) + balanced collate_fn + estimate_landmark_failure_rate() (single-process preflight diagnostic)
 │   ├── models/
 │   │   ├── baseline.py           # XceptionBinaryClassifier (Phase 3b baseline, used by both Xception and SBI runs)
 │   │   └── fusion_model.py       # Phase 4 — CLIPSemanticBranch + FrequencyForensicsBranch + CompressionGate + LocalizationHead + FusionDeepfakeDetector; also TemporalAttentionHead (standalone, not yet wired in)
@@ -40,7 +40,7 @@ deepfake-detection-research/
 │   │   ├── train_fusion.py       # fusion-model-specific loop: adds auxiliary mask loss + evaluate_with_localization()
 │   │   └── checkpoint.py         # Phase 5 — build_scheduler()/step_scheduler() (none/cosine/plateau) + save_full_checkpoint()/load_full_checkpoint() for --resume_from_checkpoint on scripts 04/05/06
 │   └── evaluation/
-│       ├── metrics.py            # compute_metrics() [AUC/ACC/EER/AP] + compute_pointing_game_accuracy()/compute_mask_iou() for quantitative explainability
+│       ├── metrics.py            # compute_metrics() [AUC/ACC/EER/AP/balanced_acc] + compute_pointing_game_accuracy()/compute_mask_iou() for quantitative explainability + compute_heatmap_stats()/compute_best_threshold_iou() diagnostics
 │       └── evaluate.py           # Phase 6 — load_model()/run_inference()/summarize_protocols()/run_multi_protocol_evaluation(): in-dataset, per-method breakdown, cross-dataset zero-shot, explainability (fusion only)
 │
 ├── scripts/                      # thin CLI entry points, NUMBERED IN RUN ORDER, this is what you execute
@@ -117,12 +117,125 @@ deepfake-detection-research/
   filter train/val by `methods` but always keep `test` unfiltered by default
   (new `test_methods="all"` param) — otherwise the held-out method wouldn't be
   present at test time to measure generalization to it.
+- **Fixed** (`src/data/preprocess_ffpp.py`), found on a real DGX A100 run:
+  OpenCV's FFMPEG binding failed silently there (`cv2.VideoCapture().isOpened()`
+  → False for every video → 0 frames → empty `manifest.csv`), while `decord`
+  read the identical files fine. `read_frames()` and `process_video()`'s
+  frame-count logic now try `decord` FIRST, falling back to OpenCV only if
+  `decord` isn't installed or errors. `decord` was already in requirements.txt
+  as a precaution — treat it as the primary reader, not optional.
+- **Fixed** (`src/training/train_fusion.py`), found on the same DGX run:
+  `F.binary_cross_entropy` on the (post-sigmoid) heatmap crashed under fp16
+  autocast (`RuntimeError: ... unsafe to autocast`). The mask-loss computation
+  is now wrapped in `torch.autocast(device_type="cuda", enabled=False)` with
+  `.float()` casts, forcing that one loss term to full precision. Longer-term
+  cleaner fix would be returning raw heatmap logits and using
+  `BCEWithLogitsLoss` throughout, but that needs a model forward-signature
+  change — noted, not yet done.
+- **Fixed** (`src/training/checkpoint.py`): `patience_counter` was not saved
+  or restored across `--resume_from_checkpoint`, so a resumed run silently
+  reset its early-stopping progress to 0. Now saved/restored like every other
+  piece of training state; old checkpoints without the field default safely
+  to `patience_counter=0` (tested in `test_checkpoint.py`).
+- **Added** `balanced_acc` to `compute_metrics()` (`src/evaluation/metrics.py`).
+  Motivated directly by a real result: on the DGX run, SBI's "all methods
+  combined" accuracy collapsed to ~26% even though its AUC was a reasonable
+  ~71% — because the combined test subset is naturally ~1:4 real:fake (4
+  methods per real video) while each per-method subset is closer to 1:1, and
+  raw accuracy at a fixed 0.5 threshold is extremely sensitive to that ratio.
+  `balanced_acc` (mean per-class recall) isn't distorted by subset composition
+  the way raw `acc` is — use it whenever comparing accuracy across
+  differently-composed evaluation protocols (in-dataset vs per-method vs
+  cross-dataset).
 
-## Run order so far
+## Run order (full pipeline)
 ```bash
 cd deepfake-detection-research
 python scripts/00_verify_env.py
 python scripts/01_check_splits.py --ffpp_root <path> --splits_dir <path> --compression c23
 python scripts/02_run_preprocessing.py --ffpp_root <path> --splits_dir <path> --output_root data/processed --compression c23 --split train val test --frames_per_video 32 --image_size 299 --extract_masks
+python scripts/03_check_dataloader.py --manifest data/processed/manifest.csv --image_size 299 --batch_size 32 --check_masks
+python scripts/04_train_baseline.py --manifest data/processed/manifest.csv --model xception --image_size 299 --batch_size 32 --epochs 30 --lr 1e-4 --lr_scheduler cosine --run_name xception_baseline_c23
+python scripts/05_train_sbi_baseline.py --manifest data/processed/manifest.csv --dlib_predictor_path <path> --image_size 299 --batch_size 32 --epochs 30 --lr 1e-4 --lr_scheduler cosine --run_name sbi_baseline_c23
+python scripts/06_train_fusion.py --manifest data/processed/manifest.csv --image_size 224 --batch_size 32 --epochs 30 --lr 1e-4 --lr_scheduler cosine --mask_weight 1.0 --run_name fusion_v1_c23
+python scripts/07_run_evaluation.py --architecture xception --checkpoint experiments/xception_baseline_c23/best_model.pt --manifest data/processed/manifest.csv
 ```
 Full details/flags in `README.md`.
+
+## First real DGX run — results & known issues
+- Xception baseline: ~98.5% combined AUC — validates the whole pipeline works end to end.
+- SBI baseline: only ~71% combined AUC (published SBI results are usually 90%+
+  cross-dataset) AND badly miscalibrated at threshold=0.5 (see `balanced_acc`
+  note above). Suspect early stopping (patience=5) triggered too early
+  relative to the cosine schedule's intended `T_max` — LR barely decayed
+  before training stopped. Next: retry with higher `--early_stopping_patience`
+  and/or investigate the landmark-failure rate and blend-ratio range in
+  `src/data/sbi_blend.py`.
+- Fusion model: 88.2% combined AUC using only ~17% trainable params — good.
+  Pointing-game accuracy 75.35% is a genuinely good quantitative
+  explainability result. Mask IoU is near-zero (6.3e-5) — the heatmap's peak
+  lands in the right place (pointing game) but the predicted region is too
+  small/low-confidence to overlap well at a fixed 0.5 threshold. Also stopped
+  very early (epoch 8/9, best at epoch 3), same suspected cause as SBI. Next:
+  more patience, possibly higher `--mask_weight`, and log heatmap value
+  percentiles to confirm the low-confidence-heatmap hypothesis before
+  concluding the localization head itself is flawed.
+
+**Diagnostic tooling added in response to the above (before the next real
+run, so it's automatic rather than something to remember to check):**
+- `compute_heatmap_stats()` (`src/evaluation/metrics.py`) — pixel-value
+  percentiles (mean/p50/p90/p99/max/frac_above_0.5) across evaluated heatmaps.
+- `compute_best_threshold_iou()` (`src/evaluation/metrics.py`) — sweeps the
+  binarization threshold and reports the best IoU found + which threshold
+  achieved it, vs. the standard iou@0.5. Directly distinguishes "well-localized
+  but under-confident" from "genuinely broken localization" — tested against
+  a reproduction of the exact DGX scenario (peak correct, values capped at 0.3,
+  never clearing 0.5): recovers best_iou > 0.9 at threshold ≤ 0.3.
+  Both are now included automatically in `evaluate_with_localization()`'s
+  return value (so `scripts/06`'s per-epoch prints and history.json show them)
+  and in `src/evaluation/evaluate.py`'s `explainability` protocol (so
+  `scripts/07` shows them too).
+- `estimate_landmark_failure_rate()` (`src/data/sbi_dataset.py`) — a
+  deliberately single-process preflight check (SBIDataset's own
+  `_n_landmark_failures` counter is unreliable under multi-worker DataLoaders,
+  since each worker process gets its own forked copy that's never synced back
+  — documented clearly on the attribute). Wired into `scripts/05` as an
+  automatic preflight before training, with `--skip_landmark_check` and
+  `--landmark_check_sample_size` (default 500) to control it; warns if the
+  failure rate exceeds 15%.
+
+## Second real DGX run — SBI plateau confirmed, fusion IoU fixed, one new bug found
+- Landmark failure rate: only 1.6% (8/500) — ruled out as an explanation for
+  SBI's weak performance.
+- SBI resumed with `--early_stopping_patience 10`: evaluation numbers came
+  back **byte-for-byte identical** to the original run (71.099% AUC, 25.945%
+  acc). This means the extra patience found NO improvement — SBI has
+  genuinely plateaued at ~71% AUC on this recipe, not "stopped too early."
+  Treat this as a real, reportable baseline result rather than something to
+  keep chasing — it's one of three baselines, not the headline result.
+- Fusion (retrained as `fusion_v2_c23` after `fusion_v1_c23`'s checkpoint was
+  found corrupted with NaN weights, crashed ~epoch 12): mask IoU recovered
+  from 6.3e-5 to **0.3775** at the standard threshold — confirms the earlier
+  "under-confident, not broken" diagnosis was correct once training continued
+  with a higher `--mask_weight`. Combined AUC 88.24%, per-method weakest on
+  NeuralTextures (81.4% AUC vs 93.1% for Deepfakes) — consistent with
+  published FF++ literature (NeuralTextures' reenactment artifacts are
+  subtler); reasonable to name as a limitation rather than something to
+  necessarily fix before writing up.
+- **New bug fixed**: `src/training/engine.py`'s `train_one_epoch()` and
+  `src/training/train_fusion.py`'s `train_one_epoch_fusion()` had no
+  protection against a batch producing a NaN/Inf loss — exactly what
+  corrupted `fusion_v1_c23`. Both now: (1) skip the optimizer step entirely
+  for a non-finite-loss batch (weights are never updated from it) and print a
+  `[WARN]` with the skipped-batch count at epoch end; (2) apply
+  `clip_grad_norm_` (default max norm 1.0) as a general stability measure,
+  especially relevant for the fusion model's mix of a partially-frozen CLIP
+  transformer + custom CNN branches under AMP. `train_one_epoch_fusion()`'s
+  returned dict gained an `n_skipped_nan` field; `train_one_epoch()`'s return
+  type (a plain float) is unchanged for backward compatibility with existing
+  callers. Tested in `test_baseline.py`/`test_fusion_model.py` by injecting a
+  forced-NaN forward pass and confirming model weights stay finite afterward
+  (the fusion version uses a tiny mock model matching
+  `FusionDeepfakeDetector`'s `forward(x, return_heatmap=...)` signature,
+  rather than the real CLIP-based architecture, to keep the test lightweight
+  in memory-constrained environments).

@@ -152,10 +152,39 @@ def test_build_sbi_dataloaders():
     shutil.rmtree(SCRATCH, ignore_errors=True)
 
 
+def test_estimate_landmark_failure_rate():
+    from src.data.sbi_dataset import estimate_landmark_failure_rate
+
+    manifest_path = build_synthetic_manifest()  # 12 real train rows
+
+    diag_ok = estimate_landmark_failure_rate(str(manifest_path), split="train",
+                                              landmark_detector=MockLandmarkDetector(always_fail=False))
+    assert diag_ok["n_checked"] == 12
+    assert diag_ok["n_failed"] == 0
+    assert diag_ok["failure_rate"] == 0.0
+    print(f"[PASS] estimate_landmark_failure_rate reports 0% failure with an always-succeeding detector")
+
+    diag_fail = estimate_landmark_failure_rate(str(manifest_path), split="train",
+                                                landmark_detector=MockLandmarkDetector(always_fail=True))
+    assert diag_fail["n_checked"] == 12
+    assert diag_fail["n_failed"] == 12
+    assert diag_fail["failure_rate"] == 1.0
+    print(f"[PASS] estimate_landmark_failure_rate reports 100% failure with an always-failing detector")
+
+    diag_sampled = estimate_landmark_failure_rate(str(manifest_path), split="train",
+                                                   landmark_detector=MockLandmarkDetector(always_fail=False),
+                                                   sample_size=5)
+    assert diag_sampled["n_checked"] == 5, "sample_size should cap the number of images actually checked"
+    print(f"[PASS] estimate_landmark_failure_rate respects sample_size (checked {diag_sampled['n_checked']}/12)")
+
+    shutil.rmtree(SCRATCH, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_blend_mask_shape_and_range()
     test_generate_sbi_sample_changes_pixels()
     test_sbi_dataset_pairing()
     test_sbi_dataset_landmark_failure_fallback()
     test_build_sbi_dataloaders()
+    test_estimate_landmark_failure_rate()
     print("\nALL SBI TESTS PASSED")
