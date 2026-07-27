@@ -119,12 +119,17 @@ def fetch_url(url, retries=5, delay=2):
     raise last_err
 
 
-def download_files(filenames, base_url, output_path, report_progress=True):
+def download_files(filenames, base_url, output_path, report_progress=True, threads=8):
     os.makedirs(output_path, exist_ok=True)
-    if report_progress:
-        filenames = tqdm(filenames)
-    for filename in filenames:
-        download_file(base_url + filename, join(output_path, filename))
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(download_file, base_url + f, join(output_path, f)) for f in filenames]
+        if report_progress:
+            for f in tqdm(as_completed(futures), total=len(filenames), desc="Downloading"):
+                f.result()
+        else:
+            for f in as_completed(futures):
+                f.result()
 
 
 def download_file(url, out_file, report_progress=False, retries=3):
@@ -249,7 +254,7 @@ def main(args):
                                        c_type)
             print('Output path: {}'.format(dataset_output_path))
             filelist = [filename + '.mp4' for filename in filelist]
-            download_files(filelist, dataset_videos_url, dataset_output_path)
+            download_files(filelist, dataset_videos_url, dataset_output_path, threads=args.threads)
         elif c_type == 'masks':
             dataset_output_path = join(output_path, dataset_path, c_type,
                                        'videos')
@@ -266,7 +271,7 @@ def main(args):
                 print('Masks not available for FaceShifter. Aborting.')
                 return
             filelist = [filename + '.mp4' for filename in filelist]
-            download_files(filelist, dataset_mask_url, dataset_output_path)
+            download_files(filelist, dataset_mask_url, dataset_output_path, threads=args.threads)
 
         # Else: models for deepfakes
         else:
