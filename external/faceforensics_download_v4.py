@@ -160,7 +160,7 @@ def download_file(url, out_file, report_progress=False, retries=3):
                 fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
                 os.close(fh)
                 req = urllib.request.Request(target_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=30) as resp, open(out_file_tmp, 'wb') as out_f:
+                with urllib.request.urlopen(req, timeout=10) as resp, open(out_file_tmp, 'wb') as out_f:
                     shutil.copyfileobj(resp, out_f)
                 os.rename(out_file_tmp, out_file)
                 return
