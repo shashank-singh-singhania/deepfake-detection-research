@@ -62,7 +62,9 @@ def main():
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device} | Architecture: {args.architecture} | Checkpoint: {args.checkpoint}")
+    if args.architecture == "fusion" and args.image_size == 299:
+        args.image_size = 224
+    print(f"Device: {device} | Architecture: {args.architecture} | Image Size: {args.image_size} | Checkpoint: {args.checkpoint}")
 
     model_kwargs = {}
     if args.architecture == "fusion":
