@@ -53,6 +53,10 @@ def main():
     ap.add_argument("--freq_feat_dim", type=int, default=128)
     ap.add_argument("--freq_backbone", default="simple_cnn", choices=["simple_cnn", "efficientnet_b0"],
                     help="Backbone architecture for frequency stream: simple_cnn (fast, lightweight) or efficientnet_b0 (richer SE-attention features)")
+    ap.add_argument("--fusion_type", default="concat", choices=["concat", "cross_attention"],
+                    help="Fusion mechanism: concat (simple vector concatenation) or cross_attention (Cross-Attention Feature Fusion Module CAFM)")
+    ap.add_argument("--use_focal_dice", action="store_true",
+                    help="Use Hybrid Focal-Dice loss for spatial heatmap mask supervision to directly optimize IoU overlap")
     ap.add_argument("--fusion_hidden_dim", type=int, default=256)
     ap.add_argument("--image_size", type=int, default=224, help="224 recommended to match CLIP's native positional embeddings")
     ap.add_argument("--batch_size", type=int, default=32)
@@ -97,7 +101,7 @@ def main():
         clip_model_name=args.clip_model_name, clip_pretrained=clip_pretrained,
         n_unfrozen_clip_blocks=args.n_unfrozen_clip_blocks, clip_proj_dim=args.clip_proj_dim,
         freq_feat_dim=args.freq_feat_dim, fusion_hidden_dim=args.fusion_hidden_dim,
-        freq_backbone=args.freq_backbone,
+        freq_backbone=args.freq_backbone, fusion_type=args.fusion_type,
     ).to(device)
     print(f"Total params: {model.total_parameter_count():,} | "
           f"Trainable: {model.trainable_parameter_count():,} "
@@ -108,7 +112,7 @@ def main():
     scheduler = build_scheduler(args.lr_scheduler, optimizer, epochs=args.epochs)
     use_amp = (device == "cuda") and (not args.no_amp)
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
-    print(f"Mixed precision: {use_amp} | LR scheduler: {args.lr_scheduler}")
+    print(f"Mixed precision: {use_amp} | LR scheduler: {args.lr_scheduler} | Fusion: {args.fusion_type} | Focal-Dice: {args.use_focal_dice}")
 
     start_epoch = 0
     best_val_auc = -1.0
@@ -127,7 +131,8 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
         train_stats = train_one_epoch_fusion(model, loaders["train"], optimizer, device, scaler=scaler,
-                                              mask_weight=args.mask_weight, log_prefix=f"epoch{epoch} train")
+                                              mask_weight=args.mask_weight, log_prefix=f"epoch{epoch} train",
+                                              use_focal_dice=args.use_focal_dice)
         val_metrics = evaluate_with_localization(model, loaders["val"], device, log_prefix=f"epoch{epoch} val")
         step_scheduler(scheduler, args.lr_scheduler, val_auc=val_metrics["auc"])
         dt = time.time() - t0

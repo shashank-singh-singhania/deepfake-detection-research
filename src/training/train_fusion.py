@@ -15,23 +15,38 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 
+class FocalDiceLoss(nn.Module):
+    """
+    Hybrid Focal-Dice Loss for 2D spatial heatmap mask supervision.
+    Combines Focal BCE (to focus on hard boundary pixels) + Dice Loss (to directly optimize IoU overlap).
+    """
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, dice_weight: float = 1.0, smooth: float = 1e-6):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.dice_weight = dice_weight
+        self.smooth = smooth
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred = pred.clamp(1e-6, 1.0 - 1e-6)
+        target = target.float()
+        bce = - (target * torch.log(pred) + (1.0 - target) * torch.log(1.0 - pred))
+        focal_weight = target * self.alpha * ((1.0 - pred) ** self.gamma) + (1.0 - target) * (1.0 - self.alpha) * (pred ** self.gamma)
+        focal_loss = (focal_weight * bce).mean()
+
+        intersection = (pred * target).sum(dim=[1, 2])
+        union = pred.sum(dim=[1, 2]) + target.sum(dim=[1, 2])
+        dice_loss = (1.0 - (2.0 * intersection + self.smooth) / (union + self.smooth)).mean()
+        return focal_loss + self.dice_weight * dice_loss
+
+
 def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                             cls_weight: float = 1.0, mask_weight: float = 1.0,
-                            log_prefix: str = "train", max_grad_norm: float = 1.0):
-    """
-    `loader` must yield batches with an "image", "label", AND "mask" key —
-    i.e. built via src.data.dataset.build_dataloaders(..., return_mask=True).
-    Real-sample masks are all-zero by construction (src/data/dataset.py), so
-    the mask loss naturally teaches the localization head to predict "nothing
-    manipulated" on real frames too, not just to localize on fakes.
-
-    max_grad_norm: gradient clipping threshold applied before optimizer step.
-    Critical when mask_weight > 1.0 — without clipping, larger mask gradients
-    can cause FP16 overflow under AMP, poisoning BatchNorm running stats and
-    causing a NaN cascade that crashes training irreversibly.
-    """
+                            log_prefix: str = "train", max_grad_norm: float = 1.0,
+                            use_focal_dice: bool = False):
     model.train()
     cls_criterion = nn.BCEWithLogitsLoss()
+    mask_criterion = FocalDiceLoss() if use_focal_dice else None
     total_loss, total_cls_loss, total_mask_loss = 0.0, 0.0, 0.0
     n_samples = 0
     n_skipped_nan = 0
@@ -48,16 +63,13 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                 logits, heatmap = model(images, return_heatmap=True)
                 cls_loss = cls_criterion(logits, labels)
                 with torch.autocast(device_type="cuda", enabled=False):
-                    # Sanitize before BCE: the CUDA BCE kernel hard-asserts
-                    # input_val in [0,1] at the GPU level, BEFORE our Python
-                    # isfinite check below can run. nan_to_num converts NaN/Inf
-                    # (from corrupt checkpoint weights) to 0.0/1.0 so BCE can
-                    # compute without crashing — the resulting loss will still
-                    # be garbage and caught by the isfinite guard below.
                     heatmap_safe = torch.nan_to_num(
                         heatmap.float(), nan=1e-6, posinf=1.0 - 1e-6, neginf=1e-6
                     ).clamp(1e-6, 1.0 - 1e-6)
-                    mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
+                    if mask_criterion is not None:
+                        mask_loss = mask_criterion(heatmap_safe, masks.float())
+                    else:
+                        mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
 
             if not torch.isfinite(loss):

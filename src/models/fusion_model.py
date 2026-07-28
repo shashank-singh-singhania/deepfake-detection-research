@@ -231,6 +231,31 @@ class LocalizationHead(nn.Module):
         return heat.squeeze(1)                                           # (B, H, W)
 
 
+class CrossAttentionFusion(nn.Module):
+    """
+    Cross-Attention Feature Fusion Module (CAFM).
+    CLIP semantic projection vector acts as Query (Q), attending over spatial
+    frequency noise tokens (K, V) extracted from Stream 2.
+    """
+
+    def __init__(self, query_dim: int = 256, key_dim: int = 128, embed_dim: int = 256, num_heads: int = 4):
+        super().__init__()
+        self.proj_q = nn.Linear(query_dim, embed_dim)
+        self.proj_k = nn.Conv2d(key_dim, embed_dim, 1)
+        self.proj_v = nn.Conv2d(key_dim, embed_dim, 1)
+        self.attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, semantic_vec: torch.Tensor, freq_spatial_map: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = freq_spatial_map.shape
+        q = self.proj_q(semantic_vec).unsqueeze(1)                           # (B, 1, embed_dim)
+        k = self.proj_k(freq_spatial_map).flatten(2).transpose(1, 2)         # (B, H*W, embed_dim)
+        v = self.proj_v(freq_spatial_map).flatten(2).transpose(1, 2)         # (B, H*W, embed_dim)
+        attn_out, _ = self.attn(q, k, v)                                     # (B, 1, embed_dim)
+        fused = self.norm(q + attn_out).squeeze(1)                           # (B, embed_dim)
+        return fused
+
+
 class TemporalAttentionHead(nn.Module):
     """
     Standalone self-attention aggregator over a short window of per-frame
@@ -263,14 +288,21 @@ class FusionDeepfakeDetector(nn.Module):
     def __init__(self, clip_model_name: str = "ViT-B-32", clip_pretrained: str = "openai",
                  n_unfrozen_clip_blocks: int = 2, clip_proj_dim: int = 256,
                  freq_feat_dim: int = 128, fusion_hidden_dim: int = 256, dropout: float = 0.3,
-                 freq_backbone: str = "simple_cnn"):
+                 freq_backbone: str = "simple_cnn", fusion_type: str = "concat"):
         super().__init__()
         self.clip_branch = CLIPSemanticBranch(clip_model_name, clip_pretrained,
                                                n_unfrozen_clip_blocks, clip_proj_dim)
         self.freq_branch = FrequencyForensicsBranch(out_dim=freq_feat_dim, backbone=freq_backbone)
         self.compression_gate = CompressionGate()
+        self.fusion_type = fusion_type
 
-        fused_dim = clip_proj_dim + freq_feat_dim
+        if fusion_type == "cross_attention":
+            self.cross_attn = CrossAttentionFusion(query_dim=clip_proj_dim, key_dim=freq_feat_dim, embed_dim=fusion_hidden_dim)
+            fused_dim = fusion_hidden_dim
+        else:
+            self.cross_attn = None
+            fused_dim = clip_proj_dim + freq_feat_dim
+
         self.fusion_mlp = nn.Sequential(
             nn.Linear(fused_dim, fusion_hidden_dim), nn.ReLU(inplace=True), nn.Dropout(dropout),
         )
@@ -282,9 +314,13 @@ class FusionDeepfakeDetector(nn.Module):
         freq_spatial = self.freq_branch(x)                  # (B, freq_feat_dim, H', W')
         gate = self.compression_gate(x)                     # (B, 1)
         gated_freq_spatial = freq_spatial * gate.view(-1, 1, 1, 1)
-        pooled_freq = F.adaptive_avg_pool2d(gated_freq_spatial, 1).flatten(1)  # (B, freq_feat_dim)
 
-        fused = torch.cat([clip_feat, pooled_freq], dim=1)
+        if self.cross_attn is not None:
+            fused = self.cross_attn(clip_feat, gated_freq_spatial)
+        else:
+            pooled_freq = F.adaptive_avg_pool2d(gated_freq_spatial, 1).flatten(1)  # (B, freq_feat_dim)
+            fused = torch.cat([clip_feat, pooled_freq], dim=1)
+
         fused = self.fusion_mlp(fused)
         logit = self.classifier(fused).squeeze(-1)          # (B,)
 
