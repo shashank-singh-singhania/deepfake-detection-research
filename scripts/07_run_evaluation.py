@@ -96,6 +96,7 @@ def main():
             print(f"  {method}: {m}")
 
     output_path = Path(args.output) if args.output else Path(args.checkpoint).parent / "evaluation_results.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nFull results written to {output_path}")
