@@ -309,7 +309,19 @@ During training on the DGX A100 GPU, we encountered and solved 5 major technical
 
 ---
 
-### 5.4 Model Architectural Comparison
+### 5.4 Zero-Shot Cross-Domain Generalization Benchmark (DeepFakeFace - Diffusion Models)
+
+To test true cross-domain generalization (as requested by research faculty), models trained strictly on **FF++ (GANs & 3D graphics)** were evaluated zero-shot on **DeepFakeFace (DFF)** (**Stable Diffusion v1.5**, **SD Inpainting**, and **InsightFace**) without any retraining:
+
+| Model Architecture | Overall Cross-Domain AUC | Cross-Domain AP | Cross-Domain EER | InsightFace AUC | SD Inpainting AUC | SD Text2Img AUC |
+|---|---|---|---|---|---|---|
+| **Xception Baseline** | 51.18% | 77.18% | 48.63% | 56.95% | 52.16% | 44.42% |
+| **Novel Fusion Model v4** | **56.94%** 🔥 | **80.65%** 📈 | **45.43%** 📉 | **62.42%** 🚀 | **55.90%** 🎯 | **52.50%** 📈 |
+| **Net Fusion Advantage** | **+5.76%** | **+3.47%** | **-3.20%** | **+5.47%** | **+3.74%** | **+8.08%** |
+
+---
+
+### 5.5 Model Architectural Comparison
 
 #### 1. Novel Dual-Stream Fusion Model v4 (`src/models/fusion_model.py`)
 - **Semantic Stream:** OpenAI CLIP ViT-B/32 backbone (top 2 Transformer blocks unfrozen) $\rightarrow$ 256-dim semantic vector.
