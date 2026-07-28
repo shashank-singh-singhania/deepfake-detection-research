@@ -55,8 +55,8 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
                     # compute without crashing — the resulting loss will still
                     # be garbage and caught by the isfinite guard below.
                     heatmap_safe = torch.nan_to_num(
-                        heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0
-                    ).clamp(0.0, 1.0)
+                        heatmap.float(), nan=1e-6, posinf=1.0 - 1e-6, neginf=1e-6
+                    ).clamp(1e-6, 1.0 - 1e-6)
                     mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
                 loss = cls_weight * cls_loss + mask_weight * mask_loss
 
@@ -75,8 +75,8 @@ def train_one_epoch_fusion(model, loader, optimizer, device, scaler=None,
             logits, heatmap = model(images, return_heatmap=True)
             cls_loss = cls_criterion(logits, labels)
             heatmap_safe = torch.nan_to_num(
-                heatmap.float(), nan=0.0, posinf=1.0, neginf=0.0
-            ).clamp(0.0, 1.0)
+                heatmap.float(), nan=1e-6, posinf=1.0 - 1e-6, neginf=1e-6
+            ).clamp(1e-6, 1.0 - 1e-6)
             mask_loss = F.binary_cross_entropy(heatmap_safe, masks.float())
             loss = cls_weight * cls_loss + mask_weight * mask_loss
             if not torch.isfinite(loss):
