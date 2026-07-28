@@ -58,6 +58,7 @@ def main():
     ap.add_argument("--n_unfrozen_clip_blocks", type=int, default=2)
     ap.add_argument("--clip_proj_dim", type=int, default=256)
     ap.add_argument("--freq_feat_dim", type=int, default=128)
+    ap.add_argument("--freq_backbone", default="simple_cnn", choices=["simple_cnn", "efficientnet_b0"])
     ap.add_argument("--fusion_hidden_dim", type=int, default=256)
     args = ap.parse_args()
 
@@ -73,6 +74,7 @@ def main():
             clip_model_name=args.clip_model_name, clip_pretrained=clip_pretrained,
             n_unfrozen_clip_blocks=args.n_unfrozen_clip_blocks, clip_proj_dim=args.clip_proj_dim,
             freq_feat_dim=args.freq_feat_dim, fusion_hidden_dim=args.fusion_hidden_dim,
+            freq_backbone=args.freq_backbone,
         )
 
     model = load_model(args.architecture, args.checkpoint, device, **model_kwargs)

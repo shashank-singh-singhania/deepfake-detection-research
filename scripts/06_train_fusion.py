@@ -51,6 +51,8 @@ def main():
     ap.add_argument("--n_unfrozen_clip_blocks", type=int, default=2)
     ap.add_argument("--clip_proj_dim", type=int, default=256)
     ap.add_argument("--freq_feat_dim", type=int, default=128)
+    ap.add_argument("--freq_backbone", default="simple_cnn", choices=["simple_cnn", "efficientnet_b0"],
+                    help="Backbone architecture for frequency stream: simple_cnn (fast, lightweight) or efficientnet_b0 (richer SE-attention features)")
     ap.add_argument("--fusion_hidden_dim", type=int, default=256)
     ap.add_argument("--image_size", type=int, default=224, help="224 recommended to match CLIP's native positional embeddings")
     ap.add_argument("--batch_size", type=int, default=32)
@@ -95,6 +97,7 @@ def main():
         clip_model_name=args.clip_model_name, clip_pretrained=clip_pretrained,
         n_unfrozen_clip_blocks=args.n_unfrozen_clip_blocks, clip_proj_dim=args.clip_proj_dim,
         freq_feat_dim=args.freq_feat_dim, fusion_hidden_dim=args.fusion_hidden_dim,
+        freq_backbone=args.freq_backbone,
     ).to(device)
     print(f"Total params: {model.total_parameter_count():,} | "
           f"Trainable: {model.trainable_parameter_count():,} "

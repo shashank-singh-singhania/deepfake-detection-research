@@ -100,22 +100,40 @@ class FixedSRMConv(nn.Module):
 
 
 class FrequencyForensicsBranch(nn.Module):
-    """SRM residual extraction -> small trainable CNN -> spatial feature map."""
+    """SRM residual extraction -> trainable backbone (simple_cnn or efficientnet_b0) -> spatial feature map."""
 
-    def __init__(self, out_dim: int = 128):
+    def __init__(self, out_dim: int = 128, backbone: str = "simple_cnn"):
         super().__init__()
         self.srm = FixedSRMConv()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(3, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.Conv2d(64, out_dim, 3, padding=1), nn.BatchNorm2d(out_dim), nn.ReLU(inplace=True),
-        )
+        self.backbone_name = backbone
         self.out_dim = out_dim
+
+        if backbone == "efficientnet_b0":
+            import timm
+            effnet = timm.create_model("efficientnet_b0", pretrained=True, in_chans=3, features_only=True)
+            self.backbone = effnet
+            # Stage 2 feature map of EfficientNet-B0 has 40 channels at stride 8
+            self.proj = nn.Sequential(
+                nn.Conv2d(40, out_dim, 1),
+                nn.BatchNorm2d(out_dim),
+                nn.ReLU(inplace=True)
+            )
+        else:
+            self.backbone = nn.Sequential(
+                nn.Conv2d(3, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+                nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+                nn.Conv2d(64, out_dim, 3, padding=1), nn.BatchNorm2d(out_dim), nn.ReLU(inplace=True),
+            )
+            self.proj = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gray = _rgb_to_gray(x)
         residual = self.srm(gray)          # (B, 3, H, W)
-        feat = self.cnn(residual)          # (B, out_dim, H/4, W/4)
+        if self.backbone_name == "efficientnet_b0":
+            feats = self.backbone(residual)
+            feat = self.proj(feats[2])      # (B, out_dim, H/8, W/8)
+        else:
+            feat = self.backbone(residual)  # (B, out_dim, H/4, W/4)
         return feat
 
 
@@ -244,11 +262,12 @@ class FusionDeepfakeDetector(nn.Module):
 
     def __init__(self, clip_model_name: str = "ViT-B-32", clip_pretrained: str = "openai",
                  n_unfrozen_clip_blocks: int = 2, clip_proj_dim: int = 256,
-                 freq_feat_dim: int = 128, fusion_hidden_dim: int = 256, dropout: float = 0.3):
+                 freq_feat_dim: int = 128, fusion_hidden_dim: int = 256, dropout: float = 0.3,
+                 freq_backbone: str = "simple_cnn"):
         super().__init__()
         self.clip_branch = CLIPSemanticBranch(clip_model_name, clip_pretrained,
                                                n_unfrozen_clip_blocks, clip_proj_dim)
-        self.freq_branch = FrequencyForensicsBranch(out_dim=freq_feat_dim)
+        self.freq_branch = FrequencyForensicsBranch(out_dim=freq_feat_dim, backbone=freq_backbone)
         self.compression_gate = CompressionGate()
 
         fused_dim = clip_proj_dim + freq_feat_dim
