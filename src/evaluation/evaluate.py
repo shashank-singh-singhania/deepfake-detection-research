@@ -109,7 +109,7 @@ def summarize_protocols(records: list) -> dict:
     fake_methods = sorted({r["method"] for r in records if r["label"] == 1})
     per_method = {}
     for m in fake_methods:
-        sub = [r for r in records if r["method"] in (m, "youtube")]
+        sub = [r for r in records if r["method"] == m or r["label"] == 0]
         if len(sub) == 0:
             continue
         per_method[m] = compute_metrics([r["label"] for r in sub], [r["prob"] for r in sub])
