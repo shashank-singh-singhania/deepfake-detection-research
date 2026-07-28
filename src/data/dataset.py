@@ -108,9 +108,10 @@ class FFPPDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        img = cv2.imread(row["path"])
+        img_path = row["path"] if "path" in row else row.get("filepath", "")
+        img = cv2.imread(str(img_path))
         if img is None:
-            raise FileNotFoundError(f"Could not read image at {row['path']} (manifest row {idx})")
+            raise FileNotFoundError(f"Could not read image at {img_path} (manifest row {idx})")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         mask = None

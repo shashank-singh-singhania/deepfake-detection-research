@@ -51,6 +51,7 @@ def main():
         print(f"Found {len(image_files)} images for {cat_name} (label={label}, method={method_name})")
         for img_path in tqdm(image_files, desc=cat_name):
             records.append({
+                "path": str(img_path.resolve()).replace("\\", "/"),
                 "filepath": str(img_path.resolve()).replace("\\", "/"),
                 "label": label,
                 "split": "test",
