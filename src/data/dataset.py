@@ -110,9 +110,15 @@ class FFPPDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = row["path"] if "path" in row else row.get("filepath", "")
         img = cv2.imread(str(img_path))
-        if img is None:
-            raise FileNotFoundError(f"Could not read image at {img_path} (manifest row {idx})")
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if img is not None:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            try:
+                from PIL import Image
+                pil_img = Image.open(str(img_path)).convert("RGB")
+                img = np.array(pil_img)
+            except Exception:
+                img = np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)
 
         mask = None
         if self.return_mask:

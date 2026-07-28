@@ -45,11 +45,12 @@ def main():
             continue
 
         image_files = sorted(list(cat_dir.rglob("*.jpg")) + list(cat_dir.rglob("*.png")) + list(cat_dir.rglob("*.jpeg")))
-        if args.max_samples_per_class > 0 and len(image_files) > args.max_samples_per_class:
-            image_files = image_files[:args.max_samples_per_class]
+        valid_files = [f for f in image_files if f.is_file() and f.stat().st_size > 100]
+        if args.max_samples_per_class > 0 and len(valid_files) > args.max_samples_per_class:
+            valid_files = valid_files[:args.max_samples_per_class]
 
-        print(f"Found {len(image_files)} images for {cat_name} (label={label}, method={method_name})")
-        for img_path in tqdm(image_files, desc=cat_name):
+        print(f"Found {len(valid_files)} valid images for {cat_name} (label={label}, method={method_name})")
+        for img_path in tqdm(valid_files, desc=cat_name):
             records.append({
                 "path": str(img_path.resolve()).replace("\\", "/"),
                 "filepath": str(img_path.resolve()).replace("\\", "/"),
