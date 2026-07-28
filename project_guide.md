@@ -221,10 +221,11 @@ We designed a **Dual-Stream Fusion Architecture** that brings together two speci
 - **Xception Baseline:** Fine-tuned standard Xception on 299x299 crops $\to$ **98.44% AUC** (established our in-distribution performance upper bound).
 - **SBI Baseline (Self-Blended Images):** Trained on synthetic self-blended image pairs $\to$ **71.10% AUC** (established our lower bound). SBI relies on synthetic self-blended noise, which does not match real-world FF++ C23 compressed forgeries without explicit calibration.
 
-#### Step 3: Building, Stabilizing & Training the Novel Dual-Stream Fusion Model v3
+#### Step 3: Building, Stabilizing & Training the Novel Dual-Stream Fusion Model v3 & v4
 - **Model Implementation:** Fused CLIP ViT-B/32 + SRM noise filters + spatial localization head in `src/models/fusion_model.py`.
 - **Engineering & Stability Fixes:** Resolved FP16 half-precision underflow (`log(0) = NaN`) by enforcing `clamp(1e-6, 1.0 - 1e-6)` on localization heatmaps, gradient unscaling before clipping, `max_grad_norm=1.0` clipping, and `nan_to_num` guards.
-- **Flawless Full Training (v3):** Trained cleanly on DGX A100 GPU $\to$ **87.85% Test AUC**, **75.55% Pointing Game Accuracy** (+8.90% over v2!), and **41.76% Mask IoU** (@ threshold 0.10).
+- **Fusion v3 (Simple CNN):** **87.85% Test AUC**, **75.55% Pointing Game Accuracy**, **41.76% Mask IoU** (@ threshold 0.10).
+- **Fusion v4 (EfficientNet-B0 Backbone) — CURRENT BEST:** Integrated Squeeze-and-Excitation (SE) attention EfficientNet-B0 into Stream 2 $\to$ **91.07% Test AUC** (+3.22%), **88.84% Pointing Game Accuracy** (+13.29%), and **57.84% Mask IoU** (+16.08%)!
 
 ---
 
@@ -235,8 +236,8 @@ We designed a **Dual-Stream Fusion Architecture** that brings together two speci
 | **Phase 0** | Environment Setup | **100% Done** | Configured PyTorch 2.2.2+cu121 on NVIDIA A100 40GB GPU (`Device: cuda`), pinned dependencies in `requirements.txt`. |
 | **Phase 1 & 2** | Data Acquisition & Preprocessing | **100% Done** | Downloaded 5,000 videos + 4,000 ground-truth masks. Extracted 159,969 aligned face crops and cropped masks into `data/processed/manifest.csv` across `train` (115,188), `val` (22,384), and `test` (22,397). |
 | **Phase 3** | Baseline Reproduction | **100% Done** | Trained Xception Baseline $\to$ **98.38% Test AUC**, **99.62% AP**, **5.20% EER**. Established upper-bound benchmark. |
-| **Phase 4 & 5** | Novel Architecture & Training | **100% Done** | Trained **Novel Dual-Stream Fusion Model v3** with AMP mixed-precision, Cosine Annealing, gradient clipping, and `clamp(1e-6, 1-1e-6)` BCE stability. |
-| **Phase 6 & 7** | Evaluation & Report Artifacts | **100% Done** | Evaluated models on test set. Fusion v3 achieved **75.55% Pointing Game Accuracy** and **41.76% Mask IoU**. Generated `evaluation_results/*.json` and `evaluation_report.md`. |
+| **Phase 4 & 5** | Novel Architecture & Training | **100% Done** | Trained **Novel Dual-Stream Fusion Model v4** (CLIP + SRM + EfficientNet-B0) with AMP mixed-precision, Cosine Annealing, and `clamp(1e-6, 1-1e-6)` BCE stability. |
+| **Phase 6 & 7** | Evaluation & Report Artifacts | **100% Done** | Evaluated models on test set. Fusion v4 achieved **91.07% Test AUC**, **88.84% Pointing Game Accuracy**, and **57.84% Mask IoU**. Generated `evaluation_results/*.json`, `CLAUDE_UPDATE_REPORT.md`, and `evaluation_report.md`. |
 
 ---
 
