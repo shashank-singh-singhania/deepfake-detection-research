@@ -287,8 +287,9 @@ During training on the DGX A100 GPU, we encountered and solved 5 major technical
 
 | Model Architecture | Overall AUC | Average Precision (AP) | Equal Error Rate (EER) | Balanced Accuracy | Raw Accuracy | Pointing Game Acc | Mask IoU |
 |---|---|---|---|---|---|---|---|
-| **Xception Baseline** | **98.44%** | 99.62% | 5.38% | 93.46% | 95.16% | N/A | N/A |
-| **Novel Fusion Model v2** | **88.24%** | 96.42% | 19.29% | 77.22% | 85.11% | **66.65%** | **37.75%** (@ adaptive)<br>**38.69%** (@ thresh 0.10) |
+| **Xception Baseline** | **98.38%** | **99.62%** | **5.20%** | **94.36%** | **95.18%** | N/A | N/A |
+| **Novel Fusion Model v4 (EfficientNet-B0)** | **91.07%** 🔥 | **97.59%** | **17.15%** | **83.05%** | **82.28%** | **88.84%** 🚀 | **57.84%** 🎯 (@ thresh 0.05) |
+| **Novel Fusion Model v3 (Simple CNN)** | **87.85%** | **96.39%** | **19.58%** | **79.90%** | **82.42%** | **75.55%** | **41.76%** (@ thresh 0.10) |
 | **TriConsistencyNet** | **80.66%** | 93.97% | 27.22% | 67.91% | 80.77% | N/A | N/A |
 | **SBI Baseline** | **71.10%** | 90.31% | 34.96% | 53.37% | 25.95%* | N/A | N/A |
 
@@ -300,8 +301,9 @@ During training on the DGX A100 GPU, we encountered and solved 5 major technical
 
 | Model Architecture | Deepfakes (DF) | Face2Face (F2F) | FaceSwap (FS) | NeuralTextures (NT) |
 |---|---|---|---|---|
-| **Xception Baseline** | **99.15%** | **98.91%** | **98.74%** | **96.98%** |
-| **Novel Fusion Model v2** | **93.14%** | **88.64%** | **89.78%** | **81.40%** |
+| **Xception Baseline** | **99.14%** | **98.88%** | **98.45%** | **97.03%** |
+| **Novel Fusion Model v4 (EfficientNet-B0)** | **95.06%** 🔥 | **91.88%** 🔥 | **91.88%** 🔥 | **85.47%** 🔥 |
+| **Novel Fusion Model v3 (Simple CNN)** | **93.62%** | **87.41%** | **89.23%** | **81.13%** |
 | **TriConsistencyNet** | **84.37%** | **81.13%** | **79.93%** | **77.22%** |
 | **SBI Baseline** | **81.26%** | **71.01%** | **64.47%** | **67.65%** |
 
@@ -309,13 +311,13 @@ During training on the DGX A100 GPU, we encountered and solved 5 major technical
 
 ### 5.4 Model Architectural Comparison
 
-#### 1. Novel Dual-Stream Fusion Model (`src/models/fusion_model.py`)
-- **Semantic Stream:** OpenAI CLIP ViT-B/32 backbone (top 2 Transformer blocks unfrozen) $\rightarrow$ 512-dim semantic vector.
-- **Frequency Stream:** Fixed 3-kernel SRM high-pass noise filters $\rightarrow$ 3-layer trainable Conv-BN-ReLU CNN $\rightarrow$ $128\times56\times56$ feature map.
+#### 1. Novel Dual-Stream Fusion Model v4 (`src/models/fusion_model.py`)
+- **Semantic Stream:** OpenAI CLIP ViT-B/32 backbone (top 2 Transformer blocks unfrozen) $\rightarrow$ 256-dim semantic vector.
+- **Frequency Stream:** Fixed 3-kernel SRM high-pass noise filters $\rightarrow$ Pretrained **EfficientNet-B0 backbone** with Squeeze-and-Excitation (SE) attention $\rightarrow$ $128\times28\times28$ feature map.
 - **Dual Output Heads:**
-  - **Classification Head:** Linear layer predicting Real vs Fake probability.
-  - **Localization Head:** $1\times1$ Conv + Sigmoid producing $224\times224$ manipulation heatmap.
-- **Total Parameters:** 88.2M | Trainable: 14.9M (17.0%).
+  - **Classification Head:** Linear layer predicting Real vs Fake probability (**91.07% AUC**).
+  - **Localization Head:** $1\times1$ Conv + Sigmoid producing $224\times224$ manipulation heatmap (**88.84% Pointing Game**, **57.84% Mask IoU**).
+- **Total Parameters:** 91.7M | Trainable: 18.4M (20.1%).
 
 #### 2. TriConsistencyNet (`another_model/src/model.py`)
 - **Spatial Stream:** Frozen `EfficientNetV2-S` backbone $\rightarrow$ $1280\times7\times7$ feature map.
