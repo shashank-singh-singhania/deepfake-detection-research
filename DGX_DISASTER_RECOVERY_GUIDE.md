@@ -1,4 +1,4 @@
-# 🛡️ DGX Disaster Recovery Guide & Local Backup Inventory
+# 🛡️ DGX Disaster Recovery Guide & Local Checkpoint Backup Inventory
 
 **Project:** *Dual-Stream Semantic-Frequency Fusion Network for Explainable Deepfake Detection and Cross-Domain Generalization*  
 **Author:** Shashank Singh Singhania  
@@ -8,13 +8,52 @@
 
 ## 📌 Executive Summary
 
-This guide guarantees **100% full recovery** of the research project, code, trained weights, evaluation metrics, figures, manuscript text, and dataset preprocessing pipelines in the event that the DGX GPU server is wiped, deleted, or reset.
+This guide guarantees **100% full recovery** of the research project, source code, trained PyTorch model checkpoints (`best_model.pt`), evaluation metrics, figures, manuscript text, and dataset preprocessing pipelines in the event that the DGX GPU server is wiped, deleted, or reset.
 
 All source code, evaluation metrics (32 JSONs), 600 DPI publication figures, manuscript files (`paper_draft.md`, `paper_draft.docx`, `paper_draft.pdf`), IEEE LaTeX templates (`main.tex`, `references.bib`), and 50 fresh Grad-CAM visualization figure grids are **fully backed up locally on your laptop** and synchronized on GitHub `main`.
 
 ---
 
-## 📂 1. Inventory of Locally Saved Assets
+## 💾 1. Model Checkpoints Backup Instructions (`best_model.pt`)
+
+To ensure you **never have to retrain models on DGX again**, back up the trained `.pt` checkpoint files from DGX (`/workspace/shashank/deepfake-detection-research/experiments/`) to your local laptop using any of the following 3 options:
+
+### Option A: Git LFS (Direct GitHub Backup - Recommended)
+Run these commands on your **DGX Server terminal (`root@abc-0`)**:
+```bash
+cd /workspace/shashank/deepfake-detection-research
+git lfs install
+git lfs track "*.pt"
+git add .gitattributes experiments/
+git commit -m "backup: save trained model checkpoints (Proposed Model, Xception, SBI)"
+git push origin main
+```
+Then on your **Laptop PowerShell**:
+```powershell
+cd C:\Users\Singhania\Desktop\Research\deepfake-detection-research
+git pull origin main
+```
+
+---
+
+### Option B: Direct SCP Download from DGX to Laptop
+Run this command on your **Laptop PowerShell**:
+```powershell
+scp -r root@<DGX_SERVER_IP>:/workspace/shashank/deepfake-detection-research/experiments C:\Users\Singhania\Desktop\Research\deepfake-detection-research\experiments
+```
+
+---
+
+### Option C: Archive to Single Zip/Tar File on DGX
+Run this command on your **DGX Server terminal**:
+```bash
+cd /workspace/shashank/deepfake-detection-research
+tar -czvf trained_model_checkpoints.tar.gz experiments/
+```
+
+---
+
+## 📂 2. Inventory of Locally Saved Assets
 
 Every critical asset is stored locally in your workspace `C:\Users\Singhania\Desktop\Research\deepfake-detection-research`:
 
@@ -63,7 +102,7 @@ Every critical asset is stored locally in your workspace `C:\Users\Singhania\Des
 
 ---
 
-## 🔄 2. Step-by-Step Recovery Recipe (If DGX Server is Wiped)
+## 🔄 3. Step-by-Step Recovery Recipe (If DGX Server is Wiped)
 
 If the DGX GPU server is reset, follow these exact steps to rebuild the environment in 15 minutes:
 
@@ -86,24 +125,18 @@ pip install open-clip-torch timm albumentations opencv-python matplotlib seaborn
 
 #### A. FaceForensics++ (FF++):
 ```bash
-# Download FF++ c23 compressed videos from official benchmark script
 python scripts/01_download_ffpp.py --output_dir data/raw/ffpp --compression c23
-# Run automated face extraction & MTCNN face crop pipeline
 python src/data/preprocess_ffpp.py --input_dir data/raw/ffpp --output_dir data/processed
 ```
 
 #### B. DeepFakeFace (DFF):
 ```bash
-# Download DeepFakeFace benchmark dataset
 python scripts/07_evaluate_cross_domain_dff.py --download_only
 ```
 
-### Step 4: Re-evaluate & Regenerate All Figures
-All scripts (`scripts/01` through `scripts/23`) are modular and executable with a single command to regenerate any figure or table!
-
 ---
 
-## 🔒 3. Verification of Local Backup
+## 🔒 4. Verification of Local Backup
 Run the local verification check to ensure all 600 DPI figures and JSON files are present on your laptop:
 ```powershell
 Get-ChildItem -Path "paper_figures_600dpi"
