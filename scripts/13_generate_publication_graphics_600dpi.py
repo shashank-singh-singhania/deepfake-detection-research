@@ -143,6 +143,68 @@ def make_fig3_confusion_matrix_proposed():
     plt.close()
 
 
+def make_fig3b_confusion_matrix_proposed_dff():
+    """Figure 3b: Confusion Matrix for Proposed Model on DeepFakeFace (DFF) Zero-Shot Cross-Domain Dataset."""
+    # Total DFF Dataset: 10,000 images (5,000 Real, 5,000 Fake)
+    # Zero-Shot AUC: 56.94%
+    # Real Correct: 3,025 (60.5%), Real Misclassified as Fake: 1,975 (39.5%)
+    # Fake Correct: 2,655 (53.1%), Fake Misclassified as Real: 2,345 (46.9%)
+    cm_perc = np.array([[60.5, 39.5],
+                        [46.9, 53.1]])
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.heatmap(cm_perc, annot=False, cmap="Blues", cbar=True, ax=ax, vmin=0, vmax=100)
+
+    labels = [["True Real\n3,025 (60.5%)", "False Fake\n1,975 (39.5%)"],
+              ["False Real\n2,345 (46.9%)", "True Fake\n2,655 (53.1%)"]]
+    
+    for i in range(2):
+        for j in range(2):
+            color = "white" if cm_perc[i, j] > 50 else "black"
+            ax.text(j + 0.5, i + 0.5, labels[i][j], ha="center", va="center", color=color, fontsize=11, fontweight="bold")
+
+    ax.set_xlabel("Predicted Class", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Ground-Truth Class", fontsize=11, fontweight="bold")
+    ax.set_xticklabels(["REAL", "FAKE"], fontsize=10, fontweight="bold")
+    ax.set_yticklabels(["REAL", "FAKE"], fontsize=10, fontweight="bold")
+    ax.set_title("Confusion Matrix — Proposed Model\n(DeepFakeFace DFF Cross-Domain Test: 10,000 Images)", fontsize=11, fontweight="bold", pad=12)
+
+    plt.tight_layout()
+    out = Path("paper_figures_600dpi/fig3b_confusion_matrix_proposed_dff_600dpi.png")
+    plt.savefig(out, dpi=DPI)
+    plt.close()
+
+
+def make_fig4b_confusion_matrix_xception_dff():
+    """Figure 4b: Confusion Matrix for Xception Baseline on DeepFakeFace (DFF) Zero-Shot Cross-Domain Dataset."""
+    # Total DFF Dataset: 10,000 images (5,000 Real, 5,000 Fake)
+    # Zero-Shot AUC: 51.18%
+    cm_perc = np.array([[55.0, 45.0],
+                        [52.6, 47.4]])
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.heatmap(cm_perc, annot=False, cmap="Reds", cbar=True, ax=ax, vmin=0, vmax=100)
+
+    labels = [["True Real\n2,750 (55.0%)", "False Fake\n2,250 (45.0%)"],
+              ["False Real\n2,630 (52.6%)", "True Fake\n2,370 (47.4%)"]]
+    
+    for i in range(2):
+        for j in range(2):
+            color = "white" if cm_perc[i, j] > 50 else "black"
+            ax.text(j + 0.5, i + 0.5, labels[i][j], ha="center", va="center", color=color, fontsize=11, fontweight="bold")
+
+    ax.set_xlabel("Predicted Class", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Ground-Truth Class", fontsize=11, fontweight="bold")
+    ax.set_xticklabels(["REAL", "FAKE"], fontsize=10, fontweight="bold")
+    ax.set_yticklabels(["REAL", "FAKE"], fontsize=10, fontweight="bold")
+    ax.set_title("Confusion Matrix — Xception Baseline\n(DeepFakeFace DFF Cross-Domain Test: 10,000 Images)", fontsize=11, fontweight="bold", pad=12)
+
+    plt.tight_layout()
+    out = Path("paper_figures_600dpi/fig4b_confusion_matrix_xception_dff_600dpi.png")
+    plt.savefig(out, dpi=DPI)
+    plt.close()
+
+
 def make_fig4_confusion_matrix_xception():
     """Figure 4: Confusion Matrix for Xception Baseline."""
     cm_perc = np.array([[93.3, 6.7],
@@ -424,13 +486,15 @@ def main():
     make_fig1_architecture()
     make_fig2_comparative_roc()
     make_fig3_confusion_matrix_proposed()
+    make_fig3b_confusion_matrix_proposed_dff()
     make_fig4_confusion_matrix_xception()
+    make_fig4b_confusion_matrix_xception_dff()
     make_fig5_training_history()
     make_fig6_cross_domain_dff()
     make_fig7_compression_both_datasets()
     make_fig8_per_method()
     make_all_rendered_tables()
-    print("All 12 faculty-aligned 600 DPI publication figures & rendered table images saved in paper_figures_600dpi/!")
+    print("All faculty-aligned 600 DPI publication figures & rendered table images saved in paper_figures_600dpi/!")
 
 
 if __name__ == "__main__":
