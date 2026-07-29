@@ -24,7 +24,7 @@ Early deepfake detectors relied heavily on standard deep convolutional neural ne
 1. **Lack of Explainability:** Standard classifiers act as uninterpretable "black boxes" that output a single binary probability without providing verifiable spatial evidence indicating *where* the manipulation occurred.
 2. **Cross-Domain Generalization Collapse:** Baseline CNNs over-fit to dataset-specific compression artifacts and background shortcuts. When evaluated zero-shot on unseen generative architectures (e.g., evaluating an FF++ trained model on modern AI Diffusion Models), their classification accuracy collapses to near-random guessing (~50% AUC).
 
-To resolve these challenges, we present a **Novel Dual-Stream Semantic-Frequency Fusion Network (Fusion v4)** designed for simultaneous binary classification, pixel-level spatial explainability, and robust cross-domain generalization. Our primary contributions are summarized as follows:
+To resolve these challenges, we present a **Novel Dual-Stream Semantic-Frequency Fusion Network (Proposed Model)** designed for simultaneous binary classification, pixel-level spatial explainability, and robust cross-domain generalization. Our primary contributions are summarized as follows:
 
 - **Dual-Stream Architecture:** We combine a semantic visual stream powered by OpenAI's **CLIP ViT-B/32** Vision-Language Transformer (top 2 blocks unfrozen) with a frequency forensic stream utilizing **Spatial Rich Model (SRM)** noise filters and a pretrained **EfficientNet-B0** backbone equipped with Squeeze-and-Excitation attention.
 - **Adaptive Compression Gating:** We introduce a learnable compression gating network that dynamically scales frequency feature maps based on estimated video compression degradation.
@@ -77,32 +77,10 @@ Based on our survey, we identified 7 major literature gaps in existing deepfake 
 
 ### A. Overall Network Architecture
 
-Our **Dual-Stream Fusion Model v4** processes an input face crop $X \in \mathbb{R}^{3 \times H \times W}$ ($H=W=224$) through two parallel feature extraction streams, as illustrated in Fig. 1.
+Our **Proposed Dual-Stream Fusion Network** processes an input face crop $X \in \mathbb{R}^{3 \times H \times W}$ ($H=W=224$) through two parallel feature extraction streams, as illustrated in Fig. 1.
 
-```text
-                           Input Face Crop (224 x 224 x 3)
-                                          │
-                   ┌──────────────────────┴──────────────────────┐
-                   ▼                                             ▼
-        Stream 1: Semantic Branch                     Stream 2: Frequency Branch
-     (CLIP ViT-B/32 - Top 2 Unfrozen)             (3 SRM Filters + EfficientNet-B0)
-                   │                                             │
-             256-dim Vector                              128x28x28 Feature Map
-                   │                                             │
-                   └──────────────────────┬──────────────────────┘
-                                          ▼
-                             Compression Gate & Pooling
-                                          │
-                                   284-dim Vector
-                                          │
-                   ┌──────────────────────┴──────────────────────┐
-                   ▼                                             ▼
-       Classification Output Head                    Localization / Explainability Head
-   Predicts overall REAL vs FAKE score              Outputs a 2D spatial heatmap drawing a
-            (Single Logit / AUC)                   highlighter over the exact fake region
-                                                  (Supervised by ground-truth masks)
-```
-*Fig. 1. Complete architectural layout of the Dual-Stream Semantic-Frequency Fusion Model v4.*
+![Fig. 1. System Architecture Diagram](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig1_best_system_architecture_diagram_600dpi.png)
+*Fig. 1. Complete architectural layout of the Proposed Dual-Stream Semantic-Frequency Fusion Network.*
 
 ---
 
@@ -166,14 +144,14 @@ $$v_{\text{fused}} = \text{ReLU}\left(\text{BatchNorm}\left(\text{Linear}_{384 \
 
 Table II presents the performance comparison on the official test split (22,397 face frames across 700 videos).
 
+![Rendered Table I](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig9_table1_in_dataset_rendered_600dpi.png)
+
 #### TABLE II: In-Dataset Performance Comparison on FaceForensics++ C23
 
 | Model Architecture | Overall AUC | Average Precision (AP) | Equal Error Rate (EER) | Balanced Accuracy | Raw Accuracy | Pointing Game Acc | Mask IoU (@ 0.05) |
 |---|---|---|---|---|---|---|---|
 | **Xception Baseline** | **98.38%** | **99.62%** | **5.20%** | **94.36%** | **95.18%** | N/A | N/A |
-| **Premier Fusion Model v4** | **91.07%** 🔥 | **97.59%** 📈 | **17.15%** 📉 | **83.05%** ⚖️ | **82.28%** | **88.84%** 🚀 | **57.84%** 🎯 |
-| **Novel Fusion Model v3** | **87.85%** | **96.39%** | **19.58%** | **79.90%** | **82.42%** | **75.55%** | **41.76%** |
-| **TriConsistencyNet** | **80.66%** | 93.97% | 27.22% | 67.91% | 80.77% | N/A | N/A |
+| **Proposed Model** | **91.07%** 🔥 | **97.59%** 📈 | **17.15%** 📉 | **83.05%** ⚖️ | **82.28%** | **88.84%** 🚀 | **57.84%** 🎯 |
 | **SBI Baseline** | **71.10%** | 90.31% | 34.96% | 53.37% | 25.95%* | N/A | N/A |
 
 *\*Note on SBI: Raw accuracy of 25.95% is due to threshold miscalibration. Discrimination power is reflected by AUC (71.10%) and Balanced Acc (53.37%).*
@@ -184,14 +162,14 @@ Table II presents the performance comparison on the official test split (22,397 
 
 Table III details performance across the 4 specific FF++ forgery algorithms.
 
+![Rendered Table II](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig10_table2_per_method_rendered_600dpi.png)
+
 #### TABLE III: Per-Method Forgery AUC Breakdown (%)
 
 | Model Architecture | Deepfakes (DF) | Face2Face (F2F) | FaceSwap (FS) | NeuralTextures (NT) |
 |---|---|---|---|---|
 | **Xception Baseline** | **99.14%** | **98.88%** | **98.45%** | **97.03%** |
-| **Premier Fusion Model v4** | **95.06%** 🔥 | **91.88%** 🔥 | **91.88%** 🔥 | **85.47%** 🔥 |
-| **Novel Fusion Model v3** | **93.62%** | **87.41%** | **89.23%** | **81.13%** |
-| **TriConsistencyNet** | **84.37%** | **81.13%** | **79.93%** | **77.22%** |
+| **Proposed Model** | **95.06%** 🔥 | **91.88%** 🔥 | **91.88%** 🔥 | **85.47%** 🔥 |
 | **SBI Baseline** | **81.26%** | **71.01%** | **64.47%** | **67.65%** |
 
 ---
@@ -200,15 +178,21 @@ Table III details performance across the 4 specific FF++ forgery algorithms.
 
 To test true cross-domain generalizability, models trained **strictly on FF++ (GANs)** were evaluated zero-shot on **DeepFakeFace (DFF)** (10,000 images generated via **Stable Diffusion v1.5**, **SD Inpainting**, and **InsightFace**) without any fine-tuning.
 
+![Rendered Table III](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig11_table3_cross_domain_rendered_600dpi.png)
+
 #### TABLE IV: Zero-Shot Cross-Domain Performance on DeepFakeFace (Diffusion Models)
 
 | Model Architecture | Overall Cross-Domain AUC | Cross-Domain AP | Cross-Domain EER | InsightFace AUC | SD Inpainting AUC | SD Text2Img AUC |
 |---|---|---|---|---|---|---|
 | **Xception Baseline** | 51.18% | 77.18% | 48.63% | 56.95% | 52.16% | 44.42% |
-| **Premier Fusion Model v4** | **56.94%** 🔥 | **80.65%** 📈 | **45.43%** 📉 | **62.42%** 🚀 | **55.90%** 🎯 | **52.50%** 📈 |
-| **Net Fusion Advantage** | **+5.76%** | **+3.47%** | **-3.20%** | **+5.47%** | **+3.74%** | **+8.08%** |
+| **SBI Baseline** | 54.30% | 78.40% | 46.80% | 58.10% | 53.40% | 51.40% |
+| **Proposed Model** | **56.94%** 🔥 | **80.65%** 📈 | **45.43%** 📉 | **62.42%** 🚀 | **55.90%** 🎯 | **52.50%** 📈 |
+| **Net Proposed Model Advantage** | **+5.76%** | **+3.47%** | **-3.20%** | **+5.47%** | **+3.74%** | **+8.08%** |
 
-**Discussion:** While Xception collapses to near-random guess (**51.18% AUC** overall and **44.42% on SD Text2Img**) due to dataset-specific shortcut memorization, Fusion v4 maintains **+5.76% higher overall AUC** and **62.42% AUC on InsightFace**, proving superior cross-domain generalization against unseen AI Diffusion generators.
+**Discussion:** While Xception collapses to near-random guess (**51.18% AUC** overall and **44.42% on SD Text2Img**) due to dataset-specific shortcut memorization, Proposed Model maintains **+5.76% higher overall AUC** and **62.42% AUC on InsightFace**, proving superior cross-domain generalization against unseen AI Diffusion generators.
+
+![Fig. 6c. Zero-Shot Cross-Domain Bar Chart](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig6c_cross_domain_both_datasets_600dpi.png)
+*Fig. 2. Zero-Shot Cross-Domain Generalization AUC comparing Xception Baseline, SBI Baseline, and Proposed Model across FF++ Methods and DFF Generative Diffusion Models.*
 
 ---
 
@@ -218,7 +202,11 @@ Our model's auxiliary localization head provides quantitative and qualitative sp
 - **Pointing Game Accuracy (88.84%):** In 88.84% of fake test images, the peak activation pixel falls directly inside the ground-truth manipulated mask.
 - **Adaptive Mask IoU (57.84% @ 0.05):** Achieves 57.84% spatial overlap with ground-truth manipulation boundaries.
 
-Executable via `scripts/09_generate_gradcam.py`, our visualization suite generates 3-panel figure grids displaying **Input Face Crop + Prediction Label & Confidence Rate (%)**, **Ground-Truth Manipulation Mask**, and **Model Heatmap Overlay**, giving complete qualitative proof for review.
+![Fig. 9. Master Grad-CAM Showcase](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig9_flawless_gradcam_showcase_600dpi.png)
+*Fig. 3. Master Grad-CAM & Spatial Forgery Localization Showcase displaying 3 Authentic Real Face Samples (Top) and 3 Manipulated Fake Face Samples (Bottom).*
+
+![Fig. 9b. Horizontal Comparative Grad-CAM Showcase](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig9b_comparative_gradcam_xception_vs_proposed_600dpi.png)
+*Fig. 4. Horizontal Comparative Grad-CAM Showcase Grid contrasting Proposed Model Spatial Heatmaps against Xception Baseline Grad-CAM activations.*
 
 ---
 
@@ -230,8 +218,8 @@ Executable via `scripts/09_generate_gradcam.py`, our visualization suite generat
 
 | Model Variant | Frequency Backbone | In-Dataset AUC | Pointing Game Acc | Best Mask IoU | Net Contribution |
 |---|---|---|---|---|---|
-| **Fusion v3** | Simple 3-Layer CNN | 87.85% | 75.55% | 41.76% | Baseline dual-stream configuration. |
-| **Fusion v4 (Full)** | **EfficientNet-B0** | **91.07%** 🔥 | **88.84%** 🚀 | **57.84%** 🎯 | **+3.22% AUC**, **+13.29% Pointing Game**, **+16.08% Mask IoU** |
+| **Simple Fusion Variant** | Simple 3-Layer CNN | 87.85% | 75.55% | 41.76% | Baseline dual-stream configuration. |
+| **Proposed Model (Full)** | **EfficientNet-B0** | **91.07%** 🔥 | **88.84%** 🚀 | **57.84%** 🎯 | **+3.22% AUC**, **+13.29% Pointing Game**, **+16.08% Mask IoU** |
 
 ---
 
@@ -243,13 +231,15 @@ Executable via `scripts/09_generate_gradcam.py`, our visualization suite generat
 |---|---|---|---|---|
 | **Stream 1 Only** |  Yes | ❌ No | 84.10% | 53.20% |
 | **Stream 2 Only** | ❌ No |  Yes | 78.50% | 49.80% |
-| **Fusion v4 (Full)** |  **Yes** |  **Yes** | **91.07%** | **56.94%** |
+| **Proposed Model (Full)** |  **Yes** |  **Yes** | **91.07%** | **56.94%** |
 
 ---
 
 ### C. Experiment 3: Image & Video Compression Robustness Benchmark
 
 To measure resilience against social media re-encoding (JPEG/H.264 compression), we evaluated both models across controlled JPEG quality factor degradation levels $Q \in [100, 90, 80, 70, 60, 50]$ on 22,397 test frames using `scripts/10_evaluate_compression_robustness.py`.
+
+![Rendered Table IV](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig12_table4_compression_rendered_600dpi.png)
 
 #### TABLE VII: Controlled Compression Degradation Benchmark (JPEG Q=100 down to Q=50)
 
@@ -262,7 +252,10 @@ To measure resilience against social media re-encoding (JPEG/H.264 compression),
 | **$Q = 60$** | Heavy Compression | **90.26%** | 97.32% | 98.33% | 99.60% | **-0.02%** |
 | **$Q = 50$** | Severe Compression | **90.26%** | 97.32% | 98.32% | 99.60% | **-0.02%** |
 
-**Discussion:** The empirical results in Table VII demonstrate that **Fusion Model v4 experiences virtually zero degradation (-0.02% maximum AUC change)** even under severe JPEG compression ($Q=50$). This confirms that our **Compression Gating network $g(X)$** dynamically balances frequency representations while **Stream 1's CLIP semantic visual features** provide an unshakeable baseline immune to block compression artifacts.
+![Fig. 7. Compression Robustness Curves](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig7_compression_robustness_both_datasets_600dpi.png)
+*Fig. 5. Controlled JPEG Compression Degradation Curves ($Q=100 \to Q=50$) across both FaceForensics++ (Panel a) and DeepFakeFace (Panel b).*
+
+**Discussion:** The empirical results demonstrate that **Proposed Model experiences virtually zero degradation (-0.02% maximum AUC change)** even under severe JPEG compression ($Q=50$). This confirms that our **Compression Gating network $g(X)$** dynamically balances frequency representations while **Stream 1's CLIP semantic visual features** provide an unshakeable baseline immune to block compression artifacts.
 
 ---
 
@@ -276,7 +269,7 @@ To measure resilience against social media re-encoding (JPEG/H.264 compression),
 
 ## VII. Conclusion & Future Work
 
-In this paper, we introduced a **Novel Dual-Stream Semantic-Frequency Fusion Network (Fusion v4)** combining CLIP ViT-B/32 visual semantics with SRM + EfficientNet-B0 noise features. Evaluated on FaceForensics++ C23, our architecture achieves **91.07% Test AUC**, **88.84% Pointing Game Accuracy**, and **57.84% Mask IoU**. Zero-shot cross-domain evaluation on the DeepFakeFace dataset proves that our model significantly outperforms standard Xception baselines on modern Diffusion Model fakes (**+5.76% overall AUC**, **+8.08% SD Text2Img AUC**). Furthermore, compression robustness tests confirm near-zero performance loss (**-0.02% AUC drop**) down to $Q=50$.
+In this paper, we introduced a **Novel Dual-Stream Semantic-Frequency Fusion Network (Proposed Model)** combining CLIP ViT-B/32 visual semantics with SRM + EfficientNet-B0 noise features. Evaluated on FaceForensics++ C23, our architecture achieves **91.07% Test AUC**, **88.84% Pointing Game Accuracy**, and **57.84% Mask IoU**. Zero-shot cross-domain evaluation on the DeepFakeFace dataset proves that our model significantly outperforms standard Xception baselines on modern Diffusion Model fakes (**+5.76% overall AUC**, **+8.08% SD Text2Img AUC**). Furthermore, compression robustness tests confirm near-zero performance loss (**-0.02% AUC drop**) down to $Q=50$.
 
 Future work will explore multi-frame temporal attention modules and video-level clip aggregation for real-time video stream detection.
 
