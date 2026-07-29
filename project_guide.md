@@ -300,7 +300,7 @@ Our **Novel Dual-Stream Fusion Model v4** (`src/models/fusion_model.py`) unifies
 
 ### 6.4 Controlled Compression Degradation Benchmark (JPEG Q=100 down to Q=50)
 
-| JPEG Quality Factor ($Q$) | Compression Level | Premier Fusion Model v4 AUC | Fusion v4 AP | Xception Baseline AUC | Xception AP | Fusion Stability |
+| JPEG Quality Factor ($Q$) | Compression Level | Proposed Model AUC | Proposed Model AP | Xception Baseline AUC | Xception AP | Fusion Stability |
 |---|---|---|---|---|---|---|
 | **$Q = 100$** | Clean / Uncompressed | **90.28%** | 97.32% | 98.33% | 99.60% | Baseline |
 | **$Q = 90$** | Light Social Media | **90.27%** | 97.32% | 98.33% | 99.60% | **-0.01%** |
