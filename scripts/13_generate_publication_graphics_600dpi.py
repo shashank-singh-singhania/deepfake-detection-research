@@ -325,6 +325,99 @@ def make_fig6_cross_domain_dff():
     plt.close()
 
 
+def make_fig6b_cross_domain_ffpp():
+    """Figure 6b: Zero-Shot Cross-Method / Cross-Domain Generalization on FaceForensics++ (FF++)."""
+    methods = ["Deepfakes\n(DF)", "Face2Face\n(F2F)", "FaceSwap\n(FS)", "NeuralTextures\n(NT)", "Overall FF++\nBenchmark"]
+    xception_auc = [99.14, 98.88, 98.45, 97.03, 98.38]
+    sbi_auc = [81.26, 71.01, 64.47, 67.65, 71.10]
+    proposed_auc = [95.06, 91.88, 91.88, 85.47, 91.07]
+
+    x = np.arange(len(methods))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    rects1 = ax.bar(x - width, xception_auc, width, label="Xception Baseline", color="#d62728", edgecolor="black")
+    rects2 = ax.bar(x, sbi_auc, width, label="SBI Baseline", color="#8c564b", edgecolor="black")
+    rects3 = ax.bar(x + width, proposed_auc, width, label="Proposed Model", color="#1f77b4", edgecolor="black")
+
+    ax.set_ylabel("AUC (%)", fontsize=12, fontweight="bold")
+    ax.set_title("Figure 6b: Zero-Shot Cross-Method Generalization on FaceForensics++ (FF++)", fontsize=12, fontweight="bold", pad=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(methods, fontsize=10, fontweight="bold")
+    ax.set_ylim(55, 103)
+    ax.legend(fontsize=10, loc="lower left")
+    ax.grid(axis="y", linestyle="--", alpha=0.5)
+
+    for rect in rects1:
+        height = rect.get_height()
+        ax.annotate(f"{height:.1f}%", xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontsize=8.5, fontweight="bold")
+    for rect in rects2:
+        height = rect.get_height()
+        ax.annotate(f"{height:.1f}%", xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontsize=8.5, fontweight="bold")
+    for rect in rects3:
+        height = rect.get_height()
+        ax.annotate(f"{height:.1f}%", xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points", ha="center", va="bottom", fontsize=8.5, fontweight="bold", color="#1f77b4")
+
+    plt.tight_layout()
+    out = Path("paper_figures_600dpi/fig6b_cross_domain_ffpp_600dpi.png")
+    plt.savefig(out, dpi=DPI)
+    plt.close()
+
+
+def make_fig6c_cross_domain_both_datasets():
+    """Figure 6c: 2-Panel Zero-Shot Cross-Domain Generalization across BOTH FF++ and DFF Datasets."""
+    # Panel (a) FF++ Methods
+    ffpp_methods = ["DF", "F2F", "FS", "NT", "Overall"]
+    xc_ffpp = [99.14, 98.88, 98.45, 97.03, 98.38]
+    sbi_ffpp = [81.26, 71.01, 64.47, 67.65, 71.10]
+    prop_ffpp = [95.06, 91.88, 91.88, 85.47, 91.07]
+
+    # Panel (b) DFF Methods
+    dff_methods = ["InsightFace", "SD Inpaint", "SD Text2Img", "Overall"]
+    xc_dff = [56.95, 52.16, 44.42, 51.18]
+    sbi_dff = [58.10, 53.40, 51.40, 54.30]
+    prop_dff = [62.42, 55.90, 52.50, 56.94]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.2))
+    width = 0.25
+
+    # Panel (a)
+    x1 = np.arange(len(ffpp_methods))
+    axes[0].bar(x1 - width, xc_ffpp, width, label="Xception Baseline", color="#d62728", edgecolor="black")
+    axes[0].bar(x1, sbi_ffpp, width, label="SBI Baseline", color="#8c564b", edgecolor="black")
+    axes[0].bar(x1 + width, prop_ffpp, width, label="Proposed Model", color="#1f77b4", edgecolor="black")
+    axes[0].set_ylabel("AUC (%)", fontsize=11, fontweight="bold")
+    axes[0].set_title("(a) FaceForensics++ (FF++) Cross-Method AUC", fontsize=11, fontweight="bold")
+    axes[0].set_xticks(x1)
+    axes[0].set_xticklabels(ffpp_methods, fontsize=10, fontweight="bold")
+    axes[0].set_ylim(55, 103)
+    axes[0].legend(fontsize=9.5, loc="lower left")
+    axes[0].grid(axis="y", linestyle="--", alpha=0.5)
+
+    # Panel (b)
+    x2 = np.arange(len(dff_methods))
+    axes[1].bar(x2 - width, xc_dff, width, label="Xception Baseline", color="#d62728", edgecolor="black")
+    axes[1].bar(x2, sbi_dff, width, label="SBI Baseline", color="#8c564b", edgecolor="black")
+    axes[1].bar(x2 + width, prop_dff, width, label="Proposed Model", color="#1f77b4", edgecolor="black")
+    axes[1].set_ylabel("AUC (%)", fontsize=11, fontweight="bold")
+    axes[1].set_title("(b) DeepFakeFace (DFF) Diffusion Models AUC", fontsize=11, fontweight="bold")
+    axes[1].set_xticks(x2)
+    axes[1].set_xticklabels(dff_methods, fontsize=10, fontweight="bold")
+    axes[1].set_ylim(35, 72)
+    axes[1].axhline(50.0, color="gray", linestyle=":", linewidth=1.5, label="Random Guess (50%)")
+    axes[1].legend(fontsize=9.5, loc="upper right")
+    axes[1].grid(axis="y", linestyle="--", alpha=0.5)
+
+    plt.suptitle("Zero-Shot Cross-Domain Generalization Benchmark across Both Datasets (FF++ & DFF)", fontsize=13, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    out = Path("paper_figures_600dpi/fig6c_cross_domain_both_datasets_600dpi.png")
+    plt.savefig(out, dpi=DPI, bbox_inches="tight")
+    plt.close()
+
+
 def make_fig7_compression_both_datasets():
     """Figure 7: 2-Panel Compression Degradation Curves for BOTH FF++ and DFF Datasets."""
     q_factors = [100, 90, 80, 70, 60, 50]
@@ -491,6 +584,8 @@ def main():
     make_fig4b_confusion_matrix_xception_dff()
     make_fig5_training_history()
     make_fig6_cross_domain_dff()
+    make_fig6b_cross_domain_ffpp()
+    make_fig6c_cross_domain_both_datasets()
     make_fig7_compression_both_datasets()
     make_fig8_per_method()
     make_all_rendered_tables()
