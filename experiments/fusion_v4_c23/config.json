@@ -1,0 +1,23 @@
+{
+  "manifest": "data/processed/manifest.csv",
+  "clip_model_name": "ViT-B-32",
+  "clip_pretrained": "openai",
+  "n_unfrozen_clip_blocks": 2,
+  "clip_proj_dim": 256,
+  "freq_feat_dim": 128,
+  "freq_backbone": "efficientnet_b0",
+  "fusion_hidden_dim": 256,
+  "image_size": 224,
+  "batch_size": 32,
+  "epochs": 30,
+  "lr": 0.0001,
+  "weight_decay": 0.0001,
+  "lr_scheduler": "cosine",
+  "mask_weight": 2.0,
+  "num_workers": 8,
+  "early_stopping_patience": 10,
+  "run_name": "fusion_v4_c23",
+  "no_amp": false,
+  "resume_from_checkpoint": null,
+  "exclude_methods": []
+}

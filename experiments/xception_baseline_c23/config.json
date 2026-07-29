@@ -1,0 +1,17 @@
+{
+  "manifest": "data/processed/manifest.csv",
+  "model": "xception",
+  "image_size": 299,
+  "batch_size": 32,
+  "epochs": 30,
+  "lr": 0.0001,
+  "weight_decay": 0.0001,
+  "lr_scheduler": "cosine",
+  "num_workers": 8,
+  "early_stopping_patience": 5,
+  "run_name": "xception_baseline_c23",
+  "no_amp": false,
+  "no_pretrained": false,
+  "resume_from_checkpoint": null,
+  "exclude_methods": []
+}
