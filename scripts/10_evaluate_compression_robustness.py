@@ -36,7 +36,7 @@ def build_compressed_transform(image_size: int, quality: int):
     """Builds evaluation transform with forced JPEG quality degradation."""
     return A.Compose([
         A.Resize(image_size, image_size),
-        A.ImageCompression(quality_lower=quality, quality_upper=quality, p=1.0),
+        A.ImageCompression(quality_range=(quality, quality), p=1.0),
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ])
