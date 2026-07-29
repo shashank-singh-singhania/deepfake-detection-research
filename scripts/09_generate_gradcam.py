@@ -1,11 +1,11 @@
 """
-Script 09 — Flawless Grad-CAM & Heatmap Explainability Visualizer (No Circles).
+Script 09 — Flawless Fresh Grad-CAM & Forgery Localization Visualizer (50 Fresh Samples).
 
 Features:
-  1. Filters manifest.csv for ONLY valid, existing face image files and non-empty Ground-Truth mask files.
-  2. NO synthetic circle fallbacks—uses 100% real dataset face crops and real ground-truth manipulation masks.
-  3. High-contrast JET colormap heatmaps (0.0 to 1.0) highlighting manipulated facial features.
-  4. Generates high-resolution 600 DPI figure grids.
+  1. Cleans old PNGs from output directories before generation.
+  2. Filters manifest.csv for ONLY valid face crops and non-empty Ground-Truth manipulation masks.
+  3. Displays Ground-Truth Masks with crisp high-contrast formatting (0 for Real, 255 for Fake).
+  4. Generates 50 fresh 600 DPI publication figure grids.
 
 Usage (Proposed Fusion Model):
     python scripts/09_generate_gradcam.py \
@@ -26,6 +26,7 @@ Usage (Xception Baseline):
         --output_dir evaluation_results/gradcam_visualizations_xception
 """
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -136,6 +137,14 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     out_dir = Path(args.output_dir)
+
+    # Clean old PNGs from output directory before generating fresh ones
+    if out_dir.exists():
+        for old_file in out_dir.glob("*.png"):
+            try:
+                old_file.unlink()
+            except Exception:
+                pass
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.architecture == "fusion" and args.image_size == 299:
@@ -157,25 +166,21 @@ def main():
 
     df = pd.read_csv(args.manifest)
     
-    # Filter for valid existing image files & mask files
+    # Filter manifest for valid existing image files & mask files
     valid_rows = []
     for _, row in df.iterrows():
         path_str = str(row["path"] if "path" in row else row.get("filepath", ""))
         mask_str = str(row.get("mask_path", ""))
         
-        # Check image exists and has size > 0
         if Path(path_str).exists() and Path(path_str).stat().st_size > 0:
-            if row["label"] == 0: # Real face
+            if row["label"] == 0:
                 valid_rows.append(row)
-            elif row["label"] == 1: # Fake face
+            elif row["label"] == 1:
                 if Path(mask_str).exists() and Path(mask_str).stat().st_size > 0:
                     valid_rows.append(row)
     
-    valid_df = pd.DataFrame(valid_rows)
-    print(f"Found {len(valid_df)} valid image & mask pairs in manifest.")
-
-    if len(valid_df) == 0:
-        valid_df = df # Fallback if local dev
+    valid_df = pd.DataFrame(valid_rows) if len(valid_rows) > 0 else df
+    print(f"Found {len(valid_df)} valid dataset sample pairs.")
 
     fakes = valid_df[valid_df["label"] == 1]
     reals = valid_df[valid_df["label"] == 0]
@@ -188,7 +193,7 @@ def main():
 
     transform = build_eval_transform(args.image_size)
 
-    print(f"Generating 600 DPI Grad-CAM & Heatmap Visualizations for {len(sample_df)} samples...")
+    print(f"Generating 50 Fresh 600 DPI Grad-CAM & Heatmap Visualizations...")
     count = 0
     for idx, row in sample_df.iterrows():
         img_path = str(row["path"] if "path" in row else row.get("filepath", ""))
@@ -235,7 +240,8 @@ def main():
         axes[0].axis("off")
 
         axes[1].imshow(gt_mask, cmap="gray", vmin=0, vmax=255)
-        axes[1].set_title(f"Ground-Truth Mask\n{'None (Real Face)' if gt_label == 'REAL' else 'Manipulation Mask'}",
+        method_str = row.get("method", "Fake")
+        axes[1].set_title(f"Ground-Truth Mask\n{'None (Real Face)' if gt_label == 'REAL' else f'{method_str} Mask'}",
                           fontsize=9.5, fontweight="bold", pad=6, color="#2C3E50")
         axes[1].axis("off")
 
@@ -245,12 +251,12 @@ def main():
         axes[2].axis("off")
 
         plt.tight_layout()
-        save_file = out_dir / f"sample_{idx:02d}_{gt_label.lower()}_pred_{pred_label.lower()}_{confidence_pct:.0f}pct.png"
+        save_file = out_dir / f"sample_{count:02d}_{gt_label.lower()}_pred_{pred_label.lower()}_{confidence_pct:.0f}pct.png"
         plt.savefig(save_file, dpi=DPI, bbox_inches="tight")
         plt.close()
         count += 1
 
-    print(f"Done! Successfully saved {count} 600 DPI Grad-CAM visualizations in: {out_dir}/")
+    print(f"Done! Successfully cleaned old PNGs and saved {count} fresh 600 DPI Grad-CAM visualizations in: {out_dir}/")
 
 
 if __name__ == "__main__":
