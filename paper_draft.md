@@ -272,7 +272,9 @@ To measure resilience against social media re-encoding (JPEG/H.264 compression),
 
 In this paper, we introduced a **Novel Dual-Stream Semantic-Frequency Fusion Network (Proposed Model)** combining CLIP ViT-B/32 visual semantics with SRM + EfficientNet-B0 noise features. Evaluated on FaceForensics++ C23, our architecture achieves **91.07% Test AUC**, **88.84% Pointing Game Accuracy**, and **57.84% Mask IoU**. Zero-shot cross-domain evaluation on the DeepFakeFace dataset proves that our model significantly outperforms standard Xception baselines on modern Diffusion Model fakes (**+5.76% overall AUC**, **+8.08% SD Text2Img AUC**). Furthermore, compression robustness tests confirm near-zero performance loss (**-0.02% AUC drop**) down to $Q=50$.
 
-Future work will explore multi-frame temporal attention modules and video-level clip aggregation for real-time video stream detection.
+## Acknowledgment
+
+The authors express their sincere gratitude to **KIET Deemed to be University** and the **Department of Computer Science & Engineering (Artificial Intelligence)** for providing academic research support. The authors specifically acknowledge the high-performance computing infrastructure and technical facilities provided by the **Center of Excellence - Supercomputing Lab's NVIDIA DGX A100 Supercomputer**, which enabled the empirical training, evaluation, and visualization experiments conducted in this research.
 
 ---
 
