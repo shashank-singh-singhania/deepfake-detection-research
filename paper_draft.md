@@ -1,7 +1,8 @@
 # Dual-Stream Semantic-Frequency Fusion Network for Explainable Deepfake Detection and Cross-Domain Generalization
 
-**Shashank Singh Singhania**  
-Department of Computer Science & Engineering  
+**Shashank Singh** and **Deepinder Kaur**  
+Department of Computer Science & Engineering (Artificial Intelligence)  
+KIET Deemed to be University, Ghaziabad, India  
 July 2026  
 
 ---

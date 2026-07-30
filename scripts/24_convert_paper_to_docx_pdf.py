@@ -1,15 +1,15 @@
 """
-Script 24 — Convert paper_draft.md to Microsoft Word (.docx) and PDF (.pdf).
+Script 24 — Convert paper_draft.md to Microsoft Word (.docx) and PDF (.pdf) with official author details.
 
 Usage:
     python scripts/24_convert_paper_to_docx_pdf.py
 """
 from pathlib import Path
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.colors import HexColor
 
 MD_FILE = Path("paper_draft.md")
 DOCX_FILE = Path("paper_draft.docx")
@@ -19,14 +19,16 @@ PDF_FILE = Path("paper_draft.pdf")
 def convert_to_docx():
     doc = Document()
     doc.add_heading("Dual-Stream Semantic-Frequency Fusion Network for Explainable Deepfake Detection and Cross-Domain Generalization", 0)
-    doc.add_paragraph("Shashank Singh Singhania — Department of Computer Science & Engineering — July 2026")
+    p_author = doc.add_paragraph()
+    p_author.add_run("Shashank Singh and Deepinder Kaur\n").bold = True
+    p_author.add_run("Department of Computer Science & Engineering (Artificial Intelligence)\nKIET Deemed to be University, Ghaziabad, India — July 2026")
     
     with open(MD_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     for line in lines:
         line_s = line.strip()
-        if not line_s or line_s.startswith("# Dual-Stream") or line_s.startswith("**Shashank"):
+        if not line_s or line_s.startswith("# Dual-Stream") or line_s.startswith("**Shashank") or line_s.startswith("Department of"):
             continue
 
         if line_s.startswith("## "):
@@ -50,32 +52,32 @@ def convert_to_pdf():
     styles = getSampleStyleSheet()
     story = []
 
-    title_style = ParagraphStyle("TitleStyle", parent=styles["Title"], fontSize=16, leading=20, textColor=RGBColor(26, 43, 76))
-    h1_style = ParagraphStyle("H1Style", parent=styles["Heading1"], fontSize=13, leading=16, textColor=RGBColor(39, 174, 96))
-    body_style = ParagraphStyle("BodyStyle", parent=styles["BodyText"], fontSize=10, leading=14)
+    title_style = ParagraphStyle("TitleStyle", parent=styles["Title"], fontSize=15, leading=19, textColor=HexColor("#1A2B4C"))
+    h1_style = ParagraphStyle("H1Style", parent=styles["Heading1"], fontSize=12, leading=15, textColor=HexColor("#27AE60"))
+    body_style = ParagraphStyle("BodyStyle", parent=styles["BodyText"], fontSize=9.5, leading=13.5)
 
     story.append(Paragraph("Dual-Stream Semantic-Frequency Fusion Network for Explainable Deepfake Detection and Cross-Domain Generalization", title_style))
-    story.append(Spacer(1, 10))
-    story.append(Paragraph("Shashank Singh Singhania — July 2026", body_style))
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("<b>Shashank Singh</b> and <b>Deepinder Kaur</b><br/>Department of Computer Science & Engineering (Artificial Intelligence)<br/>KIET Deemed to be University, Ghaziabad, India — July 2026", body_style))
+    story.append(Spacer(1, 12))
 
     with open(MD_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     for line in lines:
         line_s = line.strip()
-        if not line_s or line_s.startswith("# Dual-Stream") or line_s.startswith("**Shashank"):
+        if not line_s or line_s.startswith("# Dual-Stream") or line_s.startswith("**Shashank") or line_s.startswith("Department of"):
             continue
 
         if line_s.startswith("## "):
-            story.append(Spacer(1, 10))
+            story.append(Spacer(1, 8))
             story.append(Paragraph(line_s.replace("## ", ""), h1_style))
-            story.append(Spacer(1, 5))
+            story.append(Spacer(1, 4))
         elif not line_s.startswith("|") and not line_s.startswith("![") and not line_s.startswith("```"):
             clean_text = line_s.replace("*", "").replace("#", "")
             if clean_text:
                 story.append(Paragraph(clean_text, body_style))
-                story.append(Spacer(1, 4))
+                story.append(Spacer(1, 3))
 
     doc.build(story)
     print(f"Saved: {PDF_FILE}")
