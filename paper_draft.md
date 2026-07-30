@@ -253,9 +253,6 @@ To measure resilience against social media re-encoding (JPEG/H.264 compression),
 | **$Q = 60$** | Heavy Compression | **90.26%** | 97.32% | 98.33% | 99.60% | **-0.02%** |
 | **$Q = 50$** | Severe Compression | **90.26%** | 97.32% | 98.32% | 99.60% | **-0.02%** |
 
-![Fig. 7. Compression Robustness Curves](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig7_compression_robustness_both_datasets_600dpi.png)
-*Fig. 5. Controlled JPEG Compression Degradation Curves ($Q=100 \to Q=50$) across both FaceForensics++ (Panel a) and DeepFakeFace (Panel b).*
-
 **Discussion:** The empirical results demonstrate that **Proposed Model experiences virtually zero degradation (-0.02% maximum AUC change)** even under severe JPEG compression ($Q=50$). This confirms that our **Compression Gating network $g(X)$** dynamically balances frequency representations while **Stream 1's CLIP semantic visual features** provide an unshakeable baseline immune to block compression artifacts.
 
 ---
