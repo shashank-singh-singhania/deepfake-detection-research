@@ -43,8 +43,13 @@ def convert_to_docx():
         elif not line_s.startswith("|") and not line_s.startswith("![") and not line_s.startswith("```"):
             doc.add_paragraph(line_s)
 
-    doc.save(DOCX_FILE)
-    print(f"Saved: {DOCX_FILE}")
+    try:
+        doc.save(DOCX_FILE)
+        print(f"Saved: {DOCX_FILE}")
+    except PermissionError:
+        alt_docx = Path("paper_draft_updated.docx")
+        doc.save(alt_docx)
+        print(f"Notice: paper_draft.docx is open in Word. Saved updated file to: {alt_docx}")
 
 
 def convert_to_pdf():
@@ -79,8 +84,11 @@ def convert_to_pdf():
                 story.append(Paragraph(clean_text, body_style))
                 story.append(Spacer(1, 3))
 
-    doc.build(story)
-    print(f"Saved: {PDF_FILE}")
+    try:
+        doc.build(story)
+        print(f"Saved: {PDF_FILE}")
+    except Exception as e:
+        print(f"PDF Build Notice: {e}")
 
 
 if __name__ == "__main__":

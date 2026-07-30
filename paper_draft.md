@@ -77,8 +77,7 @@ Based on our survey, we identified 7 major literature gaps in existing deepfake 
 ## III. Proposed Methodology
 
 ### A. Overall Network Architecture
-
-Our **Proposed Dual-Stream Fusion Network** processes an input face crop $X \in \mathbb{R}^{3 \times H \times W}$ ($H=W=224$) through two parallel feature extraction streams, as illustrated in Fig. 1.
+Our **Proposed Dual-Stream Fusion Network** processes raw video streams by first sampling video frames and extracting aligned 3-channel RGB face crops $X \in \mathbb{R}^{3 \times 224 \times 224}$ using MTCNN. These 3-channel RGB frames are processed through two parallel feature extraction streams, as illustrated in Fig. 1.
 
 ![Fig. 1. System Architecture Diagram](file:///c:/Users/Singhania/Desktop/Research/deepfake-detection-research/paper_figures_600dpi/fig1_best_system_architecture_diagram_600dpi.png)
 *Fig. 1. Complete architectural layout of the Proposed Dual-Stream Semantic-Frequency Fusion Network.*
@@ -87,7 +86,7 @@ Our **Proposed Dual-Stream Fusion Network** processes an input face crop $X \in 
 
 ### B. Stream 1: Semantic Visual Branch (CLIP ViT-B/32)
 
-Stream 1 extracts high-level visual semantic concepts, facial symmetry, and structural anomalies using OpenAI's pre-trained **CLIP ViT-B/32** Vision-Language Transformer. To preserve pre-trained general representations while adapting to deepfake artifacts, we freeze the bottom 10 Vision Transformer blocks and unfreeze only the top 2 blocks:
+Stream 1 feeds the 3-channel RGB face crop $X$ directly into OpenAI's pre-trained **CLIP ViT-B/32** Vision-Language Transformer to extract high-level visual semantics, facial symmetry, and structural anomalies. To preserve pre-trained general representations while adapting to deepfake artifacts, we freeze the bottom 10 Vision Transformer blocks and unfreeze only the top 2 blocks:
 
 $$f_{\text{semantic}} = \text{Linear}_{512 \to 256}\left(\text{CLIP}_{\text{top2}}(X)\right) \in \mathbb{R}^{256}$$
 
@@ -95,11 +94,11 @@ $$f_{\text{semantic}} = \text{Linear}_{512 \to 256}\left(\text{CLIP}_{\text{top2
 
 ### C. Stream 2: Frequency Forensic Branch (SRM + EfficientNet-B0)
 
-Stream 2 isolates mathematical high-frequency noise residuals left by AI face-swappers. The RGB input is converted to grayscale $I_{\text{gray}} \in \mathbb{R}^{1 \times H \times W}$ and filtered through 3 fixed $5 \times 5$ Spatial Rich Model (SRM) high-pass kernels $K_1, K_2, K_3$:
+Stream 2 isolates mathematical high-frequency noise residuals left by AI face-swappers. The 3-channel RGB input $X$ is converted to a 1-channel grayscale representation $I_{\text{gray}} \in \mathbb{R}^{1 \times 224 \times 224}$ ($I_{\text{gray}} = 0.299R + 0.587G + 0.114B$) and convolved with 3 fixed $5 \times 5$ Spatial Rich Model (SRM) high-pass noise kernels $K_1, K_2, K_3$:
 
 $$R_c = K_c * I_{\text{gray}}, \quad c \in \{1, 2, 3\}$$
 
-The resulting 3-channel noise residual map $R \in \mathbb{R}^{3 \times H \times W}$ is fed into a pre-trained **EfficientNet-B0** backbone equipped with Squeeze-and-Excitation (SE) attention blocks:
+This produces 3 noise residual channels $R = [R_1 \Vert R_2 \Vert R_3] \in \mathbb{R}^{3 \times 224 \times 224}$, which are fed into a pre-trained **EfficientNet-B0** backbone equipped with Squeeze-and-Excitation (SE) attention blocks:
 
 $$F_{\text{spatial}} = \text{Conv}_{1\times1}\left(\text{EfficientNet-B0}_{\text{Stage2}}(R)\right) \in \mathbb{R}^{128 \times 28 \times 28}$$
 
